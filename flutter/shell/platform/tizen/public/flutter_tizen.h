@@ -38,6 +38,17 @@ typedef enum {
   kMouseMove,
 } FlutterDesktopPointerEventType;
 
+typedef struct {
+  // The x-coordinate of the top left corner of the FlutterDesktopView.
+  int32_t x;
+  // The y-coordinate of the top left corner of the FlutterDesktopView.
+  int32_t y;
+  // The width of the FlutterDesktopView.
+  int32_t width;
+  // The height of the FlutterDesktopView.
+  int32_t height;
+} FlutterDesktopViewGeometry;
+
 // Properties for configuring the initial settings of a Flutter window.
 typedef struct {
   // The x-coordinate of the top left corner of the window.
@@ -200,6 +211,11 @@ FLUTTER_EXPORT void* FlutterDesktopViewGetNativeHandle(
 FLUTTER_EXPORT void FlutterDesktopViewResize(FlutterDesktopViewRef view,
                                              int32_t width,
                                              int32_t height);
+
+// Returns the size of the view.
+// @warning This API is a work-in-progress and may change.
+FLUTTER_EXPORT FlutterDesktopViewGeometry
+FlutterDesktopViewGetGeometry(FlutterDesktopViewRef view);
 
 FLUTTER_EXPORT void FlutterDesktopViewOnPointerEvent(
     FlutterDesktopViewRef view,

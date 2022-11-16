@@ -245,6 +245,14 @@ void FlutterDesktopViewResize(FlutterDesktopViewRef view,
   ViewFromHandle(view)->Resize(width, height);
 }
 
+FlutterDesktopViewGeometry FlutterDesktopViewGetGeometry(
+    FlutterDesktopViewRef view) {
+  flutter::TizenGeometry tizen_geometry =
+      ViewFromHandle(view)->tizen_view()->GetGeometry();
+  return {tizen_geometry.left, tizen_geometry.top, tizen_geometry.width,
+          tizen_geometry.height};
+}
+
 void FlutterDesktopViewOnPointerEvent(FlutterDesktopViewRef view,
                                       FlutterDesktopPointerEventType type,
                                       double x,
