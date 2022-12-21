@@ -17,7 +17,8 @@ constexpr char kChannelName[] = "flutter/platform_views";
 
 }  // namespace
 
-PlatformViewChannel::PlatformViewChannel(BinaryMessenger* messenger)
+PlatformViewChannel::PlatformViewChannel(BinaryMessenger* messenger,
+                                         TizenViewBase* view)
     : channel_(std::make_unique<MethodChannel<EncodableValue>>(
           messenger,
           kChannelName,

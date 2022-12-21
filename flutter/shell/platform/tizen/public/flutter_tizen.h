@@ -65,6 +65,8 @@ typedef struct {
   FlutterDesktopRendererType renderer_type;
   // The external output type of the window.
   FlutterDesktopExternalOutputType external_output_type;
+
+  void* platformview_window;
 } FlutterDesktopWindowProperties;
 
 // Properties for configuring the initial settings of a Flutter view.
@@ -202,6 +204,9 @@ FLUTTER_EXPORT void FlutterDesktopViewDestroy(FlutterDesktopViewRef view);
 // - window ecore wl2   : to Ecore_Wl2_Window*
 // @warning This API is a work-in-progress and may change.
 FLUTTER_EXPORT void* FlutterDesktopViewGetNativeHandle(
+    FlutterDesktopViewRef view);
+
+FLUTTER_EXPORT void* FlutterDesktopViewGetPlatformViewSurface(
     FlutterDesktopViewRef view);
 
 // Resizes the view.

@@ -248,7 +248,8 @@ bool FlutterTizenEngine::RunEngine() {
     navigation_channel_ = std::make_unique<NavigationChannel>(
         internal_plugin_registrar_->messenger());
     platform_view_channel_ = std::make_unique<PlatformViewChannel>(
-        internal_plugin_registrar_->messenger());
+        internal_plugin_registrar_->messenger(), view_->tizen_view());
+        
   }
 
   accessibility_settings_ = std::make_unique<AccessibilitySettings>(this);

@@ -56,6 +56,9 @@ class TizenViewBase {
   TizenInputMethodContext* input_method_context() {
     return input_method_context_.get();
   }
+  
+//temporary
+  void* platformview_surface_ = nullptr;
 
  protected:
   TizenViewEventHandlerDelegate* view_delegate_ = nullptr;

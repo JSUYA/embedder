@@ -11,6 +11,7 @@
 
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/binary_messenger.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/method_channel.h"
+#include "flutter/shell/platform/tizen/tizen_view_base.h"
 
 class PlatformView;
 class PlatformViewFactory;
@@ -19,7 +20,7 @@ namespace flutter {
 
 class PlatformViewChannel {
  public:
-  explicit PlatformViewChannel(BinaryMessenger* messenger);
+  explicit PlatformViewChannel(BinaryMessenger* messenger, TizenViewBase* view);
   virtual ~PlatformViewChannel();
 
   void Dispose();
@@ -56,6 +57,8 @@ class PlatformViewChannel {
                 std::unique_ptr<MethodResult<EncodableValue>>&& result);
   void OnTouch(const EncodableValue* arguments,
                std::unique_ptr<MethodResult<EncodableValue>>&& result);
+  void OnSurface(const EncodableValue* arguments,
+                 std::unique_ptr<MethodResult<EncodableValue>>&& result);
 
   std::unique_ptr<MethodChannel<EncodableValue>> channel_;
   std::map<std::string, std::unique_ptr<PlatformViewFactory>> view_factories_;
