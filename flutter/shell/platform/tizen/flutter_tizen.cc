@@ -328,11 +328,12 @@ int64_t FlutterDesktopTextureRegistrarRegisterExternalTexture(
       ->RegisterTexture(texture_info);
 }
 
-bool FlutterDesktopTextureRegistrarUnregisterExternalTexture(
+void FlutterDesktopTextureRegistrarUnregisterExternalTexture(
     FlutterDesktopTextureRegistrarRef texture_registrar,
-    int64_t texture_id) {
-  return TextureRegistrarFromHandle(texture_registrar)
-      ->UnregisterTexture(texture_id);
+    int64_t texture_id,
+    void (*callback)(void* user_data),
+    void* user_data) {
+  TextureRegistrarFromHandle(texture_registrar)->UnregisterTexture(texture_id);
 }
 
 bool FlutterDesktopTextureRegistrarMarkExternalTextureFrameAvailable(
@@ -340,4 +341,29 @@ bool FlutterDesktopTextureRegistrarMarkExternalTextureFrameAvailable(
     int64_t texture_id) {
   return TextureRegistrarFromHandle(texture_registrar)
       ->MarkTextureFrameAvailable(texture_id);
+}
+
+FlutterDesktopMessengerRef FlutterDesktopMessengerAddRef(
+    FlutterDesktopMessengerRef messenger) {
+  FT_UNIMPLEMENTED();
+  return messenger;
+}
+
+void FlutterDesktopMessengerRelease(FlutterDesktopMessengerRef messenger) {
+  FT_UNIMPLEMENTED();
+}
+
+bool FlutterDesktopMessengerIsAvailable(FlutterDesktopMessengerRef messenger) {
+  FT_UNIMPLEMENTED();
+  return true;
+}
+
+FlutterDesktopMessengerRef FlutterDesktopMessengerLock(
+    FlutterDesktopMessengerRef messenger) {
+  FT_UNIMPLEMENTED();
+  return messenger;
+}
+
+void FlutterDesktopMessengerUnlock(FlutterDesktopMessengerRef messenger) {
+  FT_UNIMPLEMENTED();
 }
