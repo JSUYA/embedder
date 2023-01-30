@@ -487,6 +487,17 @@ FlutterRendererConfig FlutterTizenEngine::GetRendererConfig() {
       return engine->texture_registrar()->PopulateTexture(texture_id, width,
                                                           height, texture);
     };
+    config.open_gl.populate_existing_damage =
+        [](void* user_data, const intptr_t fbo_id,
+           FlutterDamage* existing_damage) {
+          auto* engine = reinterpret_cast<FlutterTizenEngine*>(user_data);
+          TizenGeometry geometry = engine->view_->tizen_view()->GetGeometry();
+          existing_damage->num_rects = 1;
+          existing_damage->damage->left = geometry.left;
+          existing_damage->damage->top = geometry.top;
+          existing_damage->damage->right = geometry.left + geometry.width;
+          existing_damage->damage->bottom = geometry.top + geometry.height;
+        };
   } else {
     config.type = kSoftware;
     config.software.struct_size = sizeof(config.software);
