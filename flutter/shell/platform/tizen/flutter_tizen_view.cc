@@ -104,6 +104,7 @@ void FlutterTizenView::SetEngine(std::unique_ptr<FlutterTizenEngine> engine) {
   double pixel_ratio = ComputePixelRatio(tizen_view_.get());
   platform_view_channel_ =
       std::make_unique<PlatformViewChannel>(messenger, pixel_ratio);
+  keyboard_channel_ = std::make_unique<KeyboardChannel>(messenger);
   mouse_cursor_channel_ =
       std::make_unique<MouseCursorChannel>(messenger, tizen_view_.get());
   text_input_channel_ = std::make_unique<TextInputChannel>(
@@ -327,6 +328,12 @@ void FlutterTizenView::OnKey(const char* key,
   // Do not handle the TV system menu key.
   if (strcmp(key, kSysMenuKey) == 0) {
     return;
+  }
+
+  // TODO(jsuya) : This should only work if the device is a hardware keyboard.
+  if (keyboard_channel_ && is_down) {
+    keyboard_channel_->SendKeyboardState(static_cast<uint32_t>(*key),
+                                         scan_code);
   }
 
   if (text_input_channel_) {
