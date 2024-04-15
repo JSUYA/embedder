@@ -382,6 +382,12 @@ typedef struct {
   size_t width;
   /// Height of the texture.
   size_t height;
+  /// The pixel data buffer.
+  const uint8_t* buffer;
+  /// The length of buffer.
+  size_t length;
+  /// The egl image.
+  const void* egl_image;
 } FlutterOpenGLTexture;
 
 typedef struct {
@@ -400,6 +406,15 @@ typedef struct {
   /// collect the framebuffer.
   VoidCallback destruction_callback;
 } FlutterOpenGLFramebuffer;
+
+// Possible values for the type specified in FlutterDesktopTextureInfo.
+// Additional types may be added in the future.
+typedef enum {
+  // A Pixel buffer-based texture.
+  kFlutterPixelBufferTexture,
+  // A platform-specific GPU surface-backed texture.
+  kFlutterGpuSurfaceTexture
+} FlutterTextureType;
 
 typedef bool (*BoolCallback)(void* /* user data */);
 typedef FlutterTransformation (*TransformationCallback)(void* /* user data */);
@@ -2612,6 +2627,31 @@ FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineRegisterExternalTexture(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     int64_t texture_identifier);
+
+//------------------------------------------------------------------------------
+/// @brief      Register an external texture with a unique (per engine)
+///             identifier. Only rendering backends that support external
+///             textures accept external texture registrations. After the
+///             external texture is registered, the application can mark that a
+///             frame is available by calling
+///             `FlutterEngineMarkExternalTextureFrameAvailable`.
+///
+/// @see        FlutterEngineUnregisterExternalTexture()
+/// @see        FlutterEngineMarkExternalTextureFrameAvailable()
+///
+/// @param[in]  engine              A running engine instance.
+/// @param[in]  texture_identifier  The identifier of the texture to register
+///                                 with the engine. The embedder may supply new
+///                                 frames to this texture using the same
+///                                 identifier.
+/// @param[in]  type                The type of the texture.
+///
+/// @return     The result of the call.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineRegisterExternalTextureWithType(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    int64_t texture_identifier, FlutterTextureType type);
 
 //------------------------------------------------------------------------------
 /// @brief      Unregister a previous texture registration.

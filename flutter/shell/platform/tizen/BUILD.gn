@@ -145,6 +145,7 @@ template("embedder") {
       sources += [
         "accessibility_bridge_tizen.cc",
         "external_texture_pixel_egl.cc",
+        "external_texture_pixel_egl_impeller.cc",
         "external_texture_surface_egl.cc",
         "flutter_platform_node_delegate_tizen.cc",
         "tizen_renderer_egl.cc",

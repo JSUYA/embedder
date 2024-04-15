@@ -9,6 +9,7 @@
 
 #ifndef WEARABLE_PROFILE
 #include "flutter/shell/platform/tizen/external_texture_pixel_egl.h"
+#include "flutter/shell/platform/tizen/external_texture_pixel_egl_impeller.h"
 #include "flutter/shell/platform/tizen/external_texture_surface_egl.h"
 #endif
 #include "flutter/shell/platform/tizen/external_texture_pixel_evas_gl.h"
@@ -20,8 +21,11 @@
 namespace flutter {
 
 FlutterTizenTextureRegistrar::FlutterTizenTextureRegistrar(
-    FlutterTizenEngine* engine)
-    : engine_(engine) {}
+    FlutterTizenEngine* engine,
+    bool enable_impeller)
+    : engine_(engine), enable_impeller_(enable_impeller) {
+  FT_LOG(Error) << "enable_impeller : " << enable_impeller_;
+}
 
 int64_t FlutterTizenTextureRegistrar::RegisterTexture(
     const FlutterDesktopTextureInfo* texture_info) {
@@ -111,9 +115,17 @@ FlutterTizenTextureRegistrar::CreateExternalTexture(
             texture_info->pixel_buffer_config.user_data);
       }
 #ifndef WEARABLE_PROFILE
-      return std::make_unique<ExternalTexturePixelEGL>(
-          texture_info->pixel_buffer_config.callback,
-          texture_info->pixel_buffer_config.user_data);
+      else {
+        if (enable_impeller_) {
+          return std::make_unique<ExternalTexturePixelEGLImpeller>(
+              texture_info->pixel_buffer_config.callback,
+              texture_info->pixel_buffer_config.user_data);
+        } else {
+          return std::make_unique<ExternalTexturePixelEGL>(
+              texture_info->pixel_buffer_config.callback,
+              texture_info->pixel_buffer_config.user_data);
+        }
+      }
 #else
       return nullptr;
 #endif
