@@ -294,6 +294,7 @@ typedef struct {
 } FlutterTransformation;
 
 typedef void (*VoidCallback)(void* /* user data */);
+typedef bool (*BoolCallback)(void* /* user data */);
 
 typedef enum {
   /// Specifies an OpenGL texture target type. Textures are specified using
@@ -371,6 +372,8 @@ typedef struct {
   uint32_t format;
   /// User data to be returned on the invocation of the destruction callback.
   void* user_data;
+  /// Callback invoked that texture start binding.
+  BoolCallback bind_callback;
   /// Callback invoked (on an engine managed thread) that asks the embedder to
   /// collect the texture.
   VoidCallback destruction_callback;
@@ -382,6 +385,10 @@ typedef struct {
   size_t width;
   /// Height of the texture.
   size_t height;
+  /// The pixel data buffer.
+  const uint8_t* buffer;
+  /// The size of buffer.
+  size_t buffer_size;
 } FlutterOpenGLTexture;
 
 typedef struct {
@@ -401,7 +408,15 @@ typedef struct {
   VoidCallback destruction_callback;
 } FlutterOpenGLFramebuffer;
 
-typedef bool (*BoolCallback)(void* /* user data */);
+// Possible values for the type specified in FlutterDesktopTextureInfo.
+// Additional types may be added in the future.
+typedef enum {
+  // A Pixel buffer-based texture.
+  kFlutterPixelBufferTexture,
+  // A platform-specific GPU surface-backed texture.
+  kFlutterGpuSurfaceTexture
+} FlutterTextureType;
+
 typedef FlutterTransformation (*TransformationCallback)(void* /* user data */);
 typedef uint32_t (*UIntCallback)(void* /* user data */);
 typedef bool (*SoftwareSurfacePresentCallback)(void* /* user data */,
@@ -2680,6 +2695,32 @@ FlutterEngineResult FlutterEngineRegisterExternalTexture(
     int64_t texture_identifier);
 
 //------------------------------------------------------------------------------
+/// @brief      Register an external texture with a unique (per engine)
+///             identifier. Only rendering backends that support external
+///             textures accept external texture registrations. After the
+///             external texture is registered, the application can mark that a
+///             frame is available by calling
+///             `FlutterEngineMarkExternalTextureFrameAvailable`.
+///
+/// @see        FlutterEngineUnregisterExternalTexture()
+/// @see        FlutterEngineMarkExternalTextureFrameAvailable()
+///
+/// @param[in]  engine              A running engine instance.
+/// @param[in]  texture_identifier  The identifier of the texture to register
+///                                 with the engine. The embedder may supply new
+///                                 frames to this texture using the same
+///                                 identifier.
+/// @param[in]  type                The type of the texture.
+///
+/// @return     The result of the call.
+///
+FLUTTER_EXPORT
+FlutterEngineResult FlutterEngineRegisterExternalTextureWithType(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    int64_t texture_identifier,
+    FlutterTextureType type);
+
+//------------------------------------------------------------------------------
 /// @brief      Unregister a previous texture registration.
 ///
 /// @see        FlutterEngineRegisterExternalTexture()
@@ -3131,6 +3172,11 @@ typedef FlutterEngineResult (*FlutterEngineSendPlatformMessageResponseFnPtr)(
 typedef FlutterEngineResult (*FlutterEngineRegisterExternalTextureFnPtr)(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     int64_t texture_identifier);
+typedef FlutterEngineResult (
+    *FlutterEngineRegisterExternalTextureWithTypeFnPtr)(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    int64_t texture_identifier,
+    FlutterTextureType type);
 typedef FlutterEngineResult (*FlutterEngineUnregisterExternalTextureFnPtr)(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     int64_t texture_identifier);
@@ -3217,6 +3263,8 @@ typedef struct {
       PlatformMessageReleaseResponseHandle;
   FlutterEngineSendPlatformMessageResponseFnPtr SendPlatformMessageResponse;
   FlutterEngineRegisterExternalTextureFnPtr RegisterExternalTexture;
+  FlutterEngineRegisterExternalTextureWithTypeFnPtr
+      RegisterExternalTextureWithType;
   FlutterEngineUnregisterExternalTextureFnPtr UnregisterExternalTexture;
   FlutterEngineMarkExternalTextureFrameAvailableFnPtr
       MarkExternalTextureFrameAvailable;

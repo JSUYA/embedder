@@ -8,8 +8,10 @@
 #include <mutex>
 
 #include "flutter/shell/platform/tizen/external_texture_pixel_egl.h"
+#include "flutter/shell/platform/tizen/external_texture_pixel_egl_impeller.h"
 #include "flutter/shell/platform/tizen/external_texture_pixel_evas_gl.h"
 #include "flutter/shell/platform/tizen/external_texture_surface_egl.h"
+#include "flutter/shell/platform/tizen/external_texture_surface_egl_impeller.h"
 #include "flutter/shell/platform/tizen/external_texture_surface_evas_gl.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/logger.h"
@@ -18,8 +20,11 @@
 namespace flutter {
 
 FlutterTizenTextureRegistrar::FlutterTizenTextureRegistrar(
-    FlutterTizenEngine* engine)
-    : engine_(engine) {}
+    FlutterTizenEngine* engine,
+    bool enable_impeller)
+    : engine_(engine), enable_impeller_(enable_impeller) {
+  FT_LOG(Error) << "enable_impeller : " << enable_impeller_;
+}
 
 int64_t FlutterTizenTextureRegistrar::RegisterTexture(
     const FlutterDesktopTextureInfo* texture_info) {
@@ -58,8 +63,18 @@ int64_t FlutterTizenTextureRegistrar::RegisterTexture(
     std::lock_guard<std::mutex> lock(map_mutex_);
     textures_[texture_id] = std::move(texture_gl);
   }
+  if (enable_impeller_) {
+    if (texture_info->type == kFlutterDesktopPixelBufferTexture) {
+      engine_->RegisterExternalTextureWithType(texture_id,
+                                               kFlutterPixelBufferTexture);
+    } else {
+      engine_->RegisterExternalTextureWithType(texture_id,
+                                               kFlutterGpuSurfaceTexture);
+    }
+  } else {
+    engine_->RegisterExternalTexture(texture_id);
+  }
 
-  engine_->RegisterExternalTexture(texture_id);
   return texture_id;
 }
 
@@ -108,9 +123,16 @@ FlutterTizenTextureRegistrar::CreateExternalTexture(
             texture_info->pixel_buffer_config.callback,
             texture_info->pixel_buffer_config.user_data);
       }
+
+      if (enable_impeller_) {
+        return std::make_unique<ExternalTexturePixelEGLImpeller>(
+            texture_info->pixel_buffer_config.callback,
+            texture_info->pixel_buffer_config.user_data);
+      }
       return std::make_unique<ExternalTexturePixelEGL>(
           texture_info->pixel_buffer_config.callback,
           texture_info->pixel_buffer_config.user_data);
+
     case kFlutterDesktopGpuSurfaceTexture:
       ExternalTextureExtensionType gl_extension =
           ExternalTextureExtensionType::kNone;
@@ -124,6 +146,11 @@ FlutterTizenTextureRegistrar::CreateExternalTexture(
       }
       if (renderer_type == FlutterDesktopRendererType::kEvasGL) {
         return std::make_unique<ExternalTextureSurfaceEvasGL>(
+            gl_extension, texture_info->gpu_surface_config.callback,
+            texture_info->gpu_surface_config.user_data);
+      }
+      if (enable_impeller_) {
+        return std::make_unique<ExternalTextureSurfaceEGLImpeller>(
             gl_extension, texture_info->gpu_surface_config.callback,
             texture_info->gpu_surface_config.user_data);
       }
