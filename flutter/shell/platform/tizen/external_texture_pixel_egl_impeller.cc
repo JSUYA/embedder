@@ -8,12 +8,15 @@
 #include <EGL/eglext.h>
 #include <GLES3/gl32.h>
 
+#include "flutter/shell/platform/tizen/logger.h"
+
 namespace flutter {
 
 bool ExternalTexturePixelEGLImpeller::PopulateTexture(
     size_t width,
     size_t height,
     FlutterOpenGLTexture* opengl_texture) {
+  FT_LOG(Error) << "PopulateTexture";
   if (!texture_callback_) {
     return false;
   }
@@ -30,7 +33,8 @@ bool ExternalTexturePixelEGLImpeller::PopulateTexture(
 
   // Populate the texture object used by the engine.
   opengl_texture->buffer = pixel_buffer->buffer;
-  opengl_texture->length = size_t(pixel_buffer->width) * size_t(pixel_buffer->height) * (32 >> 3);
+  opengl_texture->buffer_size =
+      size_t(pixel_buffer->width) * size_t(pixel_buffer->height) * (32 >> 3);
   opengl_texture->destruction_callback = nullptr;
   opengl_texture->user_data = nullptr;
   opengl_texture->width = width;
@@ -43,6 +47,8 @@ ExternalTexturePixelEGLImpeller::ExternalTexturePixelEGLImpeller(
     void* user_data)
     : ExternalTexture(),
       texture_callback_(texture_callback),
-      user_data_(user_data) {}
+      user_data_(user_data) {
+  FT_LOG(Error) << "ExternalTexturePixelEGLImpeller";
+}
 
 }  // namespace flutter

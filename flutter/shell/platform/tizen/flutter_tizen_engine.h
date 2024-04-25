@@ -161,6 +161,9 @@ class FlutterTizenEngine {
   // Attempts to register the texture with the given |texture_id|.
   bool RegisterExternalTexture(int64_t texture_id);
 
+  bool RegisterExternalTextureWithType(int64_t texture_id,
+                                       FlutterTextureType type);
+
   // Attempts to unregister the texture with the given |texture_id|.
   bool UnregisterExternalTexture(int64_t texture_id);
 

@@ -64,8 +64,18 @@ int64_t FlutterTizenTextureRegistrar::RegisterTexture(
     std::lock_guard<std::mutex> lock(map_mutex_);
     textures_[texture_id] = std::move(texture_gl);
   }
+  if (enable_impeller_) {
+    if (texture_info->type == kFlutterDesktopPixelBufferTexture) {
+      engine_->RegisterExternalTextureWithType(texture_id,
+                                               kFlutterPixelBufferTexture);
+    } else {
+      engine_->RegisterExternalTextureWithType(texture_id,
+                                               kFlutterGpuSurfaceTexture);
+    }
+  } else {
+    engine_->RegisterExternalTexture(texture_id);
+  }
 
-  engine_->RegisterExternalTexture(texture_id);
   return texture_id;
 }
 

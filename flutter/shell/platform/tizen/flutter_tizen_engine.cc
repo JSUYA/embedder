@@ -246,7 +246,8 @@ bool FlutterTizenEngine::RunEngine() {
       internal_plugin_registrar_->messenger());
 
   if (IsHeaded()) {
-    texture_registrar_ = std::make_unique<FlutterTizenTextureRegistrar>(this, project_->HasArgument("--enable-impeller"));
+    texture_registrar_ = std::make_unique<FlutterTizenTextureRegistrar>(
+        this, project_->HasArgument("--enable-impeller"));
     keyboard_channel_ = std::make_unique<KeyboardChannel>(
         internal_plugin_registrar_->messenger(),
         [this](const FlutterKeyEvent& event, FlutterKeyEventCallback callback,
@@ -377,9 +378,10 @@ void FlutterTizenEngine::SetupLocales() {
   // Convert the locale list to the locale pointer list that must be provided.
   std::vector<const FlutterLocale*> flutter_locale_list;
   flutter_locale_list.reserve(flutter_locales.size());
-  std::transform(flutter_locales.begin(), flutter_locales.end(),
-                 std::back_inserter(flutter_locale_list),
-                 [](const auto& arg) -> const auto* { return &arg; });
+  std::transform(
+      flutter_locales.begin(), flutter_locales.end(),
+      std::back_inserter(flutter_locale_list),
+      [](const auto& arg) -> const auto* { return &arg; });
 
   embedder_api_.UpdateLocales(engine_, flutter_locale_list.data(),
                               flutter_locale_list.size());
@@ -392,6 +394,13 @@ void FlutterTizenEngine::NotifyLowMemoryWarning() {
 bool FlutterTizenEngine::RegisterExternalTexture(int64_t texture_id) {
   return (embedder_api_.RegisterExternalTexture(engine_, texture_id) ==
           kSuccess);
+}
+
+bool FlutterTizenEngine::RegisterExternalTextureWithType(
+    int64_t texture_id,
+    FlutterTextureType type) {
+  return (embedder_api_.RegisterExternalTextureWithType(engine_, texture_id,
+                                                        type) == kSuccess);
 }
 
 bool FlutterTizenEngine::UnregisterExternalTexture(int64_t texture_id) {

@@ -384,10 +384,8 @@ typedef struct {
   size_t height;
   /// The pixel data buffer.
   const uint8_t* buffer;
-  /// The length of buffer.
-  size_t length;
-  /// The egl image.
-  const void* egl_image;
+  /// The size of buffer.
+  size_t buffer_size;
 } FlutterOpenGLTexture;
 
 typedef struct {
@@ -2651,7 +2649,8 @@ FlutterEngineResult FlutterEngineRegisterExternalTexture(
 FLUTTER_EXPORT
 FlutterEngineResult FlutterEngineRegisterExternalTextureWithType(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
-    int64_t texture_identifier, FlutterTextureType type);
+    int64_t texture_identifier,
+    FlutterTextureType type);
 
 //------------------------------------------------------------------------------
 /// @brief      Unregister a previous texture registration.
@@ -3105,6 +3104,11 @@ typedef FlutterEngineResult (*FlutterEngineSendPlatformMessageResponseFnPtr)(
 typedef FlutterEngineResult (*FlutterEngineRegisterExternalTextureFnPtr)(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     int64_t texture_identifier);
+typedef FlutterEngineResult (
+    *FlutterEngineRegisterExternalTextureWithTypeFnPtr)(
+    FLUTTER_API_SYMBOL(FlutterEngine) engine,
+    int64_t texture_identifier,
+    FlutterTextureType type);
 typedef FlutterEngineResult (*FlutterEngineUnregisterExternalTextureFnPtr)(
     FLUTTER_API_SYMBOL(FlutterEngine) engine,
     int64_t texture_identifier);
@@ -3191,6 +3195,8 @@ typedef struct {
       PlatformMessageReleaseResponseHandle;
   FlutterEngineSendPlatformMessageResponseFnPtr SendPlatformMessageResponse;
   FlutterEngineRegisterExternalTextureFnPtr RegisterExternalTexture;
+  FlutterEngineRegisterExternalTextureWithTypeFnPtr
+      RegisterExternalTextureWithType;
   FlutterEngineUnregisterExternalTextureFnPtr UnregisterExternalTexture;
   FlutterEngineMarkExternalTextureFrameAvailableFnPtr
       MarkExternalTextureFrameAvailable;
