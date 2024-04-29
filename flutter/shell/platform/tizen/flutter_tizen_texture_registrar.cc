@@ -13,6 +13,7 @@
 #include "flutter/shell/platform/tizen/external_texture_surface_egl.h"
 #endif
 #include "flutter/shell/platform/tizen/external_texture_pixel_evas_gl.h"
+#include "flutter/shell/platform/tizen/external_texture_surface_egl_impeller.h"
 #include "flutter/shell/platform/tizen/external_texture_surface_evas_gl.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/logger.h"
@@ -156,9 +157,18 @@ FlutterTizenTextureRegistrar::CreateExternalTexture(
             texture_info->gpu_surface_config.user_data);
       }
 #ifndef WEARABLE_PROFILE
-      return std::make_unique<ExternalTextureSurfaceEGL>(
-          gl_extension, texture_info->gpu_surface_config.callback,
-          texture_info->gpu_surface_config.user_data);
+      else {
+        if (enable_impeller_) {
+          return std::make_unique<ExternalTextureSurfaceEGLImpeller>(
+              gl_extension, texture_info->gpu_surface_config.callback,
+              texture_info->gpu_surface_config.user_data);
+        } else {
+          return std::make_unique<ExternalTextureSurfaceEGL>(
+              gl_extension, texture_info->gpu_surface_config.callback,
+              texture_info->gpu_surface_config.user_data);
+        }
+      }
+
 #else
       return nullptr;
 #endif

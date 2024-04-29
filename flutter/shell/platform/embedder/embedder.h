@@ -294,6 +294,7 @@ typedef struct {
 } FlutterTransformation;
 
 typedef void (*VoidCallback)(void* /* user data */);
+typedef bool (*BoolCallback)(void* /* user data */);
 
 typedef enum {
   /// Specifies an OpenGL texture target type. Textures are specified using
@@ -371,6 +372,8 @@ typedef struct {
   uint32_t format;
   /// User data to be returned on the invocation of the destruction callback.
   void* user_data;
+  /// Callback invoked that texture start binding.
+  BoolCallback bind_callback;
   /// Callback invoked (on an engine managed thread) that asks the embedder to
   /// collect the texture.
   VoidCallback destruction_callback;
@@ -414,7 +417,6 @@ typedef enum {
   kFlutterGpuSurfaceTexture
 } FlutterTextureType;
 
-typedef bool (*BoolCallback)(void* /* user data */);
 typedef FlutterTransformation (*TransformationCallback)(void* /* user data */);
 typedef uint32_t (*UIntCallback)(void* /* user data */);
 typedef bool (*SoftwareSurfacePresentCallback)(void* /* user data */,
