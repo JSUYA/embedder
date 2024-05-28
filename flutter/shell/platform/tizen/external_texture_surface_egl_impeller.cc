@@ -8,11 +8,13 @@
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-#include <GLES3/gl32.h>
 #include <tbm_bufmgr.h>
 #include <tbm_surface.h>
 #include <tbm_surface_internal.h>
 #include <type_traits>
+
+#include "flutter/shell/platform/tizen/logger.h"
+
 #ifndef EGL_DMA_BUF_PLANE3_FD_EXT
 #define EGL_DMA_BUF_PLANE3_FD_EXT 0x3440
 #endif
@@ -22,8 +24,6 @@
 #ifndef EGL_DMA_BUF_PLANE3_PITCH_EXT
 #define EGL_DMA_BUF_PLANE3_PITCH_EXT 0x3442
 #endif
-
-#include "flutter/shell/platform/tizen/logger.h"
 
 namespace flutter {
 
@@ -158,10 +158,10 @@ bool ExternalTextureSurfaceEGLImpeller::CreateOrUpdateEglImage(
 
 void ExternalTextureSurfaceEGLImpeller::ReleaseImage() {
   if (egl_src_image_) {
-    PFNEGLDESTROYIMAGEKHRPROC n_eglDestroyImageKHR =
+    PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR =
         reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(
             eglGetProcAddress("eglDestroyImageKHR"));
-    n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image_);
+    eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image_);
     egl_src_image_ = nullptr;
   }
 }
