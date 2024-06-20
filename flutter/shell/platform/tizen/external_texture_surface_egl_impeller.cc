@@ -22,7 +22,6 @@
 #ifndef EGL_DMA_BUF_PLANE3_PITCH_EXT
 #define EGL_DMA_BUF_PLANE3_PITCH_EXT 0x3442
 #endif
-
 #include "flutter/shell/platform/tizen/logger.h"
 
 namespace flutter {
@@ -33,7 +32,8 @@ ExternalTextureSurfaceEGLImpeller::ExternalTextureSurfaceEGLImpeller(
     void* user_data)
     : ExternalTexture(gl_extension),
       texture_callback_(texture_callback),
-      user_data_(user_data) {}
+      user_data_(user_data),
+      texture_tizen_(std::make_unique<FlutterOpenGLTextureTizen>()) {}
 
 ExternalTextureSurfaceEGLImpeller::~ExternalTextureSurfaceEGLImpeller() {
   ReleaseImage();
@@ -59,11 +59,13 @@ bool ExternalTextureSurfaceEGLImpeller::PopulateTexture(
     return false;
   }
 
-  opengl_texture->impeller_texture_type =
+  texture_tizen_->impeller_texture_type =
       FlutterGLImpellerTextureType::kFlutterGLImpellerTextureGpuSurface;
-  opengl_texture->bind_callback = OnBindCallback;
+  texture_tizen_->bind_callback = OnBindCallback;
+  texture_tizen_->embedder_external_texture = this;
+
+  opengl_texture->user_data = texture_tizen_.get();
   opengl_texture->destruction_callback = nullptr;
-  opengl_texture->user_data = this;
   opengl_texture->width = width;
   opengl_texture->height = height;
   return true;
@@ -170,8 +172,11 @@ void ExternalTextureSurfaceEGLImpeller::ReleaseImage() {
 }
 
 bool ExternalTextureSurfaceEGLImpeller::OnBindCallback(void* user_data) {
+  FlutterOpenGLTextureTizen* texture_tizen =
+      static_cast<FlutterOpenGLTextureTizen*>(user_data);
   ExternalTextureSurfaceEGLImpeller* self =
-      static_cast<ExternalTextureSurfaceEGLImpeller*>(user_data);
+      static_cast<ExternalTextureSurfaceEGLImpeller*>(
+          texture_tizen->embedder_external_texture);
   return self->OnBind();
 }
 

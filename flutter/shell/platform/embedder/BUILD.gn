@@ -3,7 +3,10 @@
 # found in the LICENSE file.
 
 source_set("embedder_headers") {
-  public = [ "embedder.h" ]
+  public = [
+    "embedder.h",
+    "embedder_tizen.h",
+  ]
 
   public_configs = [ "//flutter:config" ]
 }

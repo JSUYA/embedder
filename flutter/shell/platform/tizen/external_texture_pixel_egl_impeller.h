@@ -7,6 +7,7 @@
 
 #include "flutter/shell/platform/common/public/flutter_texture_registrar.h"
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "flutter/shell/platform/embedder/embedder_tizen.h"
 #include "flutter/shell/platform/tizen/external_texture.h"
 
 namespace flutter {
@@ -26,6 +27,7 @@ class ExternalTexturePixelEGLImpeller : public ExternalTexture {
  private:
   FlutterDesktopPixelBufferTextureCallback texture_callback_ = nullptr;
   void* user_data_ = nullptr;
+  std::unique_ptr<FlutterOpenGLTextureTizen> texture_tizen_;
 };
 
 }  // namespace flutter

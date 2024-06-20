@@ -31,13 +31,14 @@ bool ExternalTexturePixelEGLImpeller::PopulateTexture(
   height = pixel_buffer->height;
 
   // Populate the texture object used by the engine.
-  opengl_texture->impeller_texture_type =
+  texture_tizen_->impeller_texture_type =
       FlutterGLImpellerTextureType::kFlutterGLImpellerTexturePixelBuffer;
-  opengl_texture->buffer = pixel_buffer->buffer;
-  opengl_texture->buffer_size =
+  texture_tizen_->buffer = pixel_buffer->buffer;
+  texture_tizen_->buffer_size =
       size_t(pixel_buffer->width) * size_t(pixel_buffer->height) * (32 >> 3);
+
   opengl_texture->destruction_callback = nullptr;
-  opengl_texture->user_data = nullptr;
+  opengl_texture->user_data = texture_tizen_.get();
   opengl_texture->width = width;
   opengl_texture->height = height;
   return true;
@@ -48,6 +49,7 @@ ExternalTexturePixelEGLImpeller::ExternalTexturePixelEGLImpeller(
     void* user_data)
     : ExternalTexture(),
       texture_callback_(texture_callback),
-      user_data_(user_data) {}
+      user_data_(user_data),
+      texture_tizen_(std::make_unique<FlutterOpenGLTextureTizen>()) {}
 
 }  // namespace flutter

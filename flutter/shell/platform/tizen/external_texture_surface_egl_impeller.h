@@ -7,6 +7,7 @@
 
 #include "flutter/shell/platform/common/public/flutter_texture_registrar.h"
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "flutter/shell/platform/embedder/embedder_tizen.h"
 #include "flutter/shell/platform/tizen/external_texture.h"
 
 #include <EGL/egl.h>
@@ -44,6 +45,7 @@ class ExternalTextureSurfaceEGLImpeller : public ExternalTexture {
   void* user_data_ = nullptr;
   EGLImageKHR egl_src_image_ = nullptr;
   void* last_surface_handle_ = nullptr;
+  std::unique_ptr<FlutterOpenGLTextureTizen> texture_tizen_;
 };
 
 }  // namespace flutter
