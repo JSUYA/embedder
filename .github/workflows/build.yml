@@ -8,7 +8,7 @@ jobs:
 
     strategy:
       matrix:
-        api-version: ["6.0", "6.5", "8.0"]
+        api-version: ["6.0", "6.5"]
         arch: [arm, arm64, x86, x64]
         include:
           - arch: arm
@@ -19,17 +19,6 @@ jobs:
             triple: i686-linux-gnu
           - arch: x64
             triple: x86-64-linux-gnu
-        exclude:
-          - api-version: "6.0"
-            arch: x64
-          - api-version: "6.5"
-            arch: x64
-          - api-version: "8.0"
-            arch: arm
-          - api-version: "8.0"
-            arch: arm64
-          - api-version: "8.0"
-            arch: x86
 
     steps:
       - uses: actions/checkout@v4

@@ -242,11 +242,9 @@ def main():
     outpath = Path(__file__).parent.parent / 'sysroot'
   outpath.mkdir(exist_ok=True)
 
-  arches = ['arm', 'arm64', 'x86']
+  arches = ['arm', 'arm64', 'x86', 'x64']
   if args.api_version >= 10.0:
     arches = ['arm', 'arm64', 'x64']
-  elif args.api_version >= 8.0:
-    arches = ['arm', 'arm64', 'x86', 'x64']
 
   for arch in arches:
     sysroot = outpath / arch
