@@ -68,8 +68,16 @@ bool ExternalTextureSurfaceEGLImpeller::PopulateGLTexture(
 
 bool ExternalTextureSurfaceEGLImpeller::CreateOrUpdateEglImage(
     const FlutterDesktopGpuSurfaceDescriptor* descriptor) {
-  if (descriptor == nullptr || descriptor->handle == nullptr) {
+  if (descriptor == nullptr) {
     ReleaseImage();
+    return false;
+  }
+
+  if (descriptor->handle == nullptr) {
+    ReleaseImage();
+    if (descriptor->release_callback) {
+      descriptor->release_callback(descriptor->release_context);
+    }
     return false;
   }
   void* handle = descriptor->handle;
