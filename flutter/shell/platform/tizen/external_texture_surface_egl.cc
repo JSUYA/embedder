@@ -4,6 +4,8 @@
 
 #include "external_texture_surface_egl.h"
 
+#include <algorithm>
+
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
@@ -104,6 +106,10 @@ bool ExternalTextureSurfaceEGL::PopulateGLTexture(
     attribs[atti++] = info.format;
 
     int num_planes = tbm_surface_internal_get_num_planes(info.format);
+    if (num_planes > 4) {
+      FT_LOG(Error) << "Unsupported plane count: " << num_planes;
+      num_planes = 4;
+    }
     for (int i = 0; i < num_planes; i++) {
       int bo_idx = tbm_surface_internal_get_plane_bo_idx(tbm_surface, i);
       tbm_bo tbo = tbm_surface_internal_get_bo(tbm_surface, bo_idx);
