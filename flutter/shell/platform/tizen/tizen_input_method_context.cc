@@ -165,8 +165,9 @@ TizenInputMethodContext::~TizenInputMethodContext() {
 
 bool TizenInputMethodContext::HandleEcoreEventKey(Ecore_Event_Key* event,
                                                   bool is_down) {
-  FT_ASSERT(imf_context_);
-  FT_ASSERT(event);
+  if (!imf_context_ || !event) {
+    return false;
+  }
 
   Ecore_IMF_Event imf_event;
   if (is_down) {
