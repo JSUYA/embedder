@@ -49,8 +49,8 @@ void TizenVsyncWaiter::EnqueueBaton(intptr_t baton) {
 }
 
 void TizenVsyncWaiter::RunVblankLoop() {
-  std::weak_ptr<TdmClient> tdm_client = tdm_client_;
-  auto client = tdm_client.lock();
+  // Keep the client alive for the lifetime of the vblank thread.
+  auto client = tdm_client_;
   if (!client || !client->IsValid()) {
     FT_LOG(Error) << "Invalid tdm_client.";
     return;
@@ -122,7 +122,16 @@ void TdmClient::OnEngineStop() {
 }
 
 void TdmClient::AwaitVblank(intptr_t baton) {
-  baton_ = baton;
+  if (!IsValid()) {
+    return;
+  }
+
+  {
+    // Protect baton_ as it's read from the vblank callback.
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    baton_ = baton;
+  }
+
   tdm_error ret = tdm_client_vblank_wait(vblank_, 1, VblankCallback, this);
   if (ret != TDM_ERROR_NONE) {
     FT_LOG(Error) << "tdm_client_vblank_wait failed with error: " << ret;
