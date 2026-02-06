@@ -654,6 +654,9 @@ bool TizenWindowEcoreWl2::SetGeometry(TizenGeometry geometry) {
 
 TizenGeometry TizenWindowEcoreWl2::GetScreenGeometry() {
   TizenGeometry result = {};
+  if (!ecore_wl2_display_) {
+    return result;
+  }
   ecore_wl2_display_screen_size_get(ecore_wl2_display_, &result.width,
                                     &result.height);
   return result;
