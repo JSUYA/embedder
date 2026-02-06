@@ -635,7 +635,10 @@ void TizenWindowEcoreWl2::DestroyWindow() {
 }
 
 TizenGeometry TizenWindowEcoreWl2::GetGeometry() {
-  TizenGeometry result;
+  TizenGeometry result = {};
+  if (!ecore_wl2_window_) {
+    return result;
+  }
   ecore_wl2_window_geometry_get(ecore_wl2_window_, &result.left, &result.top,
                                 &result.width, &result.height);
   return result;
