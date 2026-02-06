@@ -289,8 +289,10 @@ void KeyboardChannel::ResolvePendingEvent(uint64_t sequence_id, bool handled) {
     }
     return;
   }
-  // The pending event should always be found.
-  FT_ASSERT_NOT_REACHED();
+  // The pending event should always be found, but avoid crashing in case of
+  // malformed/late replies.
+  FT_LOG(Error) << "Pending key event not found (sequence_id=" << sequence_id
+                << ")";
 }
 
 void KeyboardChannel::HandleMethodCall(
