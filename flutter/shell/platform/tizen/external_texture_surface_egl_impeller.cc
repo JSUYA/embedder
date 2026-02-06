@@ -161,7 +161,11 @@ void ExternalTextureSurfaceEGLImpeller::ReleaseImage() {
     PFNEGLDESTROYIMAGEKHRPROC n_eglDestroyImageKHR =
         reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(
             eglGetProcAddress("eglDestroyImageKHR"));
-    n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image_);
+    if (n_eglDestroyImageKHR) {
+      n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image_);
+    } else {
+      FT_LOG(Error) << "eglDestroyImageKHR proc address lookup failed.";
+    }
     egl_src_image_ = nullptr;
   }
 }
