@@ -642,6 +642,9 @@ TizenGeometry TizenWindowEcoreWl2::GetGeometry() {
 }
 
 bool TizenWindowEcoreWl2::SetGeometry(TizenGeometry geometry) {
+  if (!ecore_wl2_window_) {
+    return false;
+  }
   ecore_wl2_window_rotation_geometry_set(ecore_wl2_window_, GetRotation(),
                                          geometry.left, geometry.top,
                                          geometry.width, geometry.height);
