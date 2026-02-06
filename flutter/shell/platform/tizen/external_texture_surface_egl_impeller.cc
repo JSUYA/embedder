@@ -179,6 +179,10 @@ bool ExternalTextureSurfaceEGLImpeller::OnBind() {
   PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES =
       reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(
           eglGetProcAddress("glEGLImageTargetTexture2DOES"));
+  if (!glEGLImageTargetTexture2DOES) {
+    FT_LOG(Error) << "glEGLImageTargetTexture2DOES proc address lookup failed.";
+    return false;
+  }
   glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, egl_src_image_);
   return true;
 }
