@@ -738,11 +738,17 @@ uint32_t TizenWindowEcoreWl2::GetResourceId() {
 
 void TizenWindowEcoreWl2::SetPreferredOrientations(
     const std::vector<int>& rotations) {
+  if (!ecore_wl2_window_) {
+    return;
+  }
   ecore_wl2_window_available_rotations_set(ecore_wl2_window_, rotations.data(),
                                            rotations.size());
 }
 
 void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
+  if (!ecore_wl2_window_) {
+    return;
+  }
   for (const std::string& key : keys) {
     ecore_wl2_window_keygrab_set(ecore_wl2_window_, key.c_str(), 0, 0, 0,
                                  ECORE_WL2_WINDOW_KEYGRAB_TOPMOST);
@@ -750,6 +756,9 @@ void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
 }
 
 void TizenWindowEcoreWl2::Show() {
+  if (!ecore_wl2_window_) {
+    return;
+  }
   ecore_wl2_window_show(ecore_wl2_window_);
 }
 
