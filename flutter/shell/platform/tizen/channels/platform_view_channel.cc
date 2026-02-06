@@ -291,12 +291,24 @@ void PlatformViewChannel::OnTouch(
     return;
   }
 
-  type = std::get<int>(event->at(0));
-  button = std::get<int>(event->at(1));
-  x = std::get<double>(event->at(2)) * pixel_ratio_;
-  y = std::get<double>(event->at(3)) * pixel_ratio_;
-  dx = std::get<double>(event->at(4)) * pixel_ratio_;
-  dy = std::get<double>(event->at(5)) * pixel_ratio_;
+  const auto* type_v = std::get_if<int>(&event->at(0));
+  const auto* button_v = std::get_if<int>(&event->at(1));
+  const auto* x_v = std::get_if<double>(&event->at(2));
+  const auto* y_v = std::get_if<double>(&event->at(3));
+  const auto* dx_v = std::get_if<double>(&event->at(4));
+  const auto* dy_v = std::get_if<double>(&event->at(5));
+
+  if (!type_v || !button_v || !x_v || !y_v || !dx_v || !dy_v) {
+    result->Error("Invalid arguments");
+    return;
+  }
+
+  type = *type_v;
+  button = *button_v;
+  x = (*x_v) * pixel_ratio_;
+  y = (*y_v) * pixel_ratio_;
+  dx = (*dx_v) * pixel_ratio_;
+  dy = (*dy_v) * pixel_ratio_;
 
   PlatformView* view = FindViewById(*view_id);
   if (!view) {
