@@ -27,6 +27,10 @@ InputPanelChannel::InputPanelChannel(BinaryMessenger* messenger,
              std::unique_ptr<EventSink<>>&& events)
           -> std::unique_ptr<StreamHandlerError<>> {
         event_sink_ = std::move(events);
+        if (!imf_context_) {
+          return std::make_unique<StreamHandlerError<>>(
+              "InputPanel unavailable", "No input method context");
+        }
         imf_context_->SetOnInputPanelStateChanged(
             [this](const std::string& state) {
               SendInputPanelStateEvent(state);
@@ -35,7 +39,9 @@ InputPanelChannel::InputPanelChannel(BinaryMessenger* messenger,
       },
       [this](const EncodableValue* arguments)
           -> std::unique_ptr<StreamHandlerError<>> {
-        imf_context_->SetOnInputPanelStateChanged(nullptr);
+        if (imf_context_) {
+          imf_context_->SetOnInputPanelStateChanged(nullptr);
+        }
         event_sink_.reset();
         return nullptr;
       });
@@ -46,7 +52,9 @@ InputPanelChannel::InputPanelChannel(BinaryMessenger* messenger,
 InputPanelChannel::~InputPanelChannel() {
   event_channel_->SetStreamHandler(nullptr);
 
-  imf_context_->SetOnInputPanelStateChanged(nullptr);
+  if (imf_context_) {
+    imf_context_->SetOnInputPanelStateChanged(nullptr);
+  }
 }
 
 void InputPanelChannel::SendInputPanelStateEvent(const std::string& state) {
