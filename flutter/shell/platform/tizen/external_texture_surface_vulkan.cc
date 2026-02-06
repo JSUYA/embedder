@@ -3,6 +3,9 @@
 // found in the LICENSE file.
 
 #include "flutter/shell/platform/tizen/external_texture_surface_vulkan.h"
+
+#include <vector>
+
 #include "flutter/shell/platform/tizen/external_texture_surface_vulkan_buffer_dma.h"
 #include "flutter/shell/platform/tizen/logger.h"
 
@@ -92,14 +95,21 @@ bool ExternalTextureSurfaceVulkan::IsSupportDisjoint(
   }
 
   bool is_disjoint = false;
-  uint32_t tfd[num_bos];
+  std::vector<uint32_t> fds;
+  fds.reserve(num_bos);
+
   for (int i = 0; i < num_bos; i++) {
     tbm_bo bo = tbm_surface_internal_get_bo(tbm_surface, i);
-    tfd[i] = tbm_bo_get_handle(bo, TBM_DEVICE_3D).u32;
-    if (tfd[i] != tfd[0]) {
+    fds.push_back(tbm_bo_get_handle(bo, TBM_DEVICE_3D).u32);
+  }
+
+  for (size_t i = 1; i < fds.size(); i++) {
+    if (fds[i] != fds[0]) {
       is_disjoint = true;
+      break;
     }
   }
+
   return is_disjoint;
 }
 
