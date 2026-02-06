@@ -36,16 +36,34 @@ void MouseCursorChannel::HandleMethodCall(
     std::unique_ptr<MethodResult<EncodableValue>> result) {
   const std::string& method_name = method_call.method_name();
   if (method_name == kActivateSystemCursorMethod) {
-    const auto& arguments = std::get<EncodableMap>(*method_call.arguments());
-    auto kind_iter = arguments.find(EncodableValue(std::string(kKindKey)));
-    if (kind_iter == arguments.end()) {
+    if (!method_call.arguments()) {
+      result->Error("Argument error",
+                    "Missing arguments while trying to activate system cursor");
+      return;
+    }
+
+    const auto* arguments = std::get_if<EncodableMap>(method_call.arguments());
+    if (!arguments) {
+      result->Error("Argument error",
+                    "Invalid arguments while trying to activate system cursor");
+      return;
+    }
+
+    auto kind_iter = arguments->find(EncodableValue(std::string(kKindKey)));
+    if (kind_iter == arguments->end()) {
       result->Error("Argument error",
                     "Missing argument while trying to activate system cursor");
       return;
     }
 
-    const auto& kind = std::get<std::string>(kind_iter->second);
-    view_->UpdateFlutterCursor(kind);
+    const auto* kind = std::get_if<std::string>(&kind_iter->second);
+    if (!kind) {
+      result->Error("Argument error",
+                    "Invalid 'kind' argument while trying to activate system cursor");
+      return;
+    }
+
+    view_->UpdateFlutterCursor(*kind);
     result->Success();
   } else {
     result->NotImplemented();
