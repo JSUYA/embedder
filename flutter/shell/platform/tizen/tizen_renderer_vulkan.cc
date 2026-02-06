@@ -885,6 +885,9 @@ const char** TizenRendererVulkan::GetEnabledDeviceExtensions() {
 void* TizenRendererVulkan::GetInstanceProcAddress(
     FlutterVulkanInstanceHandle instance,
     const char* name) {
+  if (!name) {
+    return nullptr;
+  }
   return reinterpret_cast<void*>(
       vkGetInstanceProcAddr(reinterpret_cast<VkInstance>(instance), name));
 }
