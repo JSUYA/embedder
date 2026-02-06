@@ -115,6 +115,10 @@ void TizenClipboard::SetData(const std::string& data) {
   mime_types[2] = nullptr;
 
   Ecore_Wl2_Input* input = ecore_wl2_input_default_input_get(display_);
+  if (!input) {
+    FT_LOG(Error) << "ecore_wl2_input_default_input_get() failed.";
+    return;
+  }
   selection_serial_ = ecore_wl2_dnd_selection_set(input, mime_types);
   ecore_wl2_display_flush(display_);
 }
