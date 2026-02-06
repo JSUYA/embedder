@@ -5,11 +5,14 @@
 #ifndef EMBEDDER_TIZEN_VSYNC_WAITER_H_
 #define EMBEDDER_TIZEN_VSYNC_WAITER_H_
 
-#include <Ecore.h>
 #include <tdm_client.h>
 
+#include <condition_variable>
+#include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 #include "flutter/shell/platform/embedder/embedder.h"
 
@@ -52,13 +55,17 @@ class TizenVsyncWaiter {
   void AsyncWaitForVsync(intptr_t baton);
 
  private:
-  void SendMessage(int event, intptr_t baton);
-
-  static void RunVblankLoop(void* data, Ecore_Thread* thread);
+  void EnqueueBaton(intptr_t baton);
+  void RunVblankLoop();
 
   std::shared_ptr<TdmClient> tdm_client_;
-  Ecore_Thread* vblank_thread_ = nullptr;
-  Eina_Thread_Queue* vblank_thread_queue_ = nullptr;
+
+  std::mutex queue_mutex_;
+  std::condition_variable queue_cv_;
+  std::deque<intptr_t> pending_batons_;
+
+  std::thread vblank_thread_;
+  bool quit_ = false;
 };
 
 }  // namespace flutter

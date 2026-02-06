@@ -4,8 +4,6 @@
 
 #include "tizen_vsync_waiter.h"
 
-#include <eina_thread_queue.h>
-
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/logger.h"
 
@@ -13,96 +11,68 @@ namespace flutter {
 
 namespace {
 
-constexpr int kMessageQuit = -1;
-constexpr int kMessageRequestVblank = 0;
-
-struct Message {
-  Eina_Thread_Queue_Msg head;
-  int event;
-  intptr_t baton;
-};
-
 }  // namespace
 
 TizenVsyncWaiter::TizenVsyncWaiter(FlutterTizenEngine* engine) {
   tdm_client_ = std::make_shared<TdmClient>(engine);
 
-  vblank_thread_ = ecore_thread_feedback_run(RunVblankLoop, nullptr, nullptr,
-                                             nullptr, this, EINA_TRUE);
+  vblank_thread_ = std::thread([this]() { RunVblankLoop(); });
 }
 
 TizenVsyncWaiter::~TizenVsyncWaiter() {
   tdm_client_->OnEngineStop();
 
-  SendMessage(kMessageQuit, 0);
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    quit_ = true;
+  }
+  queue_cv_.notify_all();
 
-  if (vblank_thread_) {
-    ecore_thread_cancel(vblank_thread_);
-    vblank_thread_ = nullptr;
+  if (vblank_thread_.joinable()) {
+    vblank_thread_.join();
   }
 }
 
 void TizenVsyncWaiter::AsyncWaitForVsync(intptr_t baton) {
-  SendMessage(kMessageRequestVblank, baton);
+  EnqueueBaton(baton);
 }
 
-void TizenVsyncWaiter::SendMessage(int event, intptr_t baton) {
-  if (!vblank_thread_ || ecore_thread_check(vblank_thread_)) {
-    FT_LOG(Error) << "Invalid vblank thread.";
-    return;
+void TizenVsyncWaiter::EnqueueBaton(intptr_t baton) {
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (quit_) {
+      return;
+    }
+    pending_batons_.push_back(baton);
   }
-
-  if (!vblank_thread_queue_) {
-    FT_LOG(Error) << "Invalid vblank thread queue.";
-    return;
-  }
-
-  void* ref;
-  Message* message = static_cast<Message*>(
-      eina_thread_queue_send(vblank_thread_queue_, sizeof(Message), &ref));
-  message->event = event;
-  message->baton = baton;
-  eina_thread_queue_send_done(vblank_thread_queue_, ref);
+  queue_cv_.notify_one();
 }
 
-void TizenVsyncWaiter::RunVblankLoop(void* data, Ecore_Thread* thread) {
-  auto* self = static_cast<TizenVsyncWaiter*>(data);
-
-  std::weak_ptr<TdmClient> tdm_client = self->tdm_client_;
-  if (!tdm_client.lock()->IsValid()) {
+void TizenVsyncWaiter::RunVblankLoop() {
+  std::weak_ptr<TdmClient> tdm_client = tdm_client_;
+  auto client = tdm_client.lock();
+  if (!client || !client->IsValid()) {
     FT_LOG(Error) << "Invalid tdm_client.";
-    ecore_thread_cancel(thread);
     return;
   }
 
-  Eina_Thread_Queue* vblank_thread_queue = eina_thread_queue_new();
-  if (!vblank_thread_queue) {
-    FT_LOG(Error) << "Invalid vblank thread queue.";
-    ecore_thread_cancel(thread);
-    return;
-  }
-  self->vblank_thread_queue_ = vblank_thread_queue;
+  while (true) {
+    intptr_t baton = 0;
+    {
+      std::unique_lock<std::mutex> lock(queue_mutex_);
+      queue_cv_.wait(lock, [this]() {
+        return quit_ || !pending_batons_.empty();
+      });
 
-  while (!ecore_thread_check(thread)) {
-    void* ref;
-    Message* message = static_cast<Message*>(
-        eina_thread_queue_wait(vblank_thread_queue, &ref));
-    if (message->event == kMessageQuit) {
-      eina_thread_queue_wait_done(vblank_thread_queue, ref);
-      break;
+      if (quit_) {
+        break;
+      }
+
+      baton = pending_batons_.front();
+      pending_batons_.pop_front();
     }
-    intptr_t baton = message->baton;
-    eina_thread_queue_wait_done(vblank_thread_queue, ref);
 
-    if (tdm_client.expired()) {
-      break;
-    }
-    tdm_client.lock()->AwaitVblank(baton);
-  }
-
-  if (vblank_thread_queue) {
-    eina_thread_queue_free(vblank_thread_queue);
-    self->vblank_thread_queue_ = nullptr;
+    client->AwaitVblank(baton);
   }
 }
 
@@ -168,7 +138,9 @@ void TdmClient::VblankCallback(tdm_client_vblank* vblank,
                                unsigned int tv_usec,
                                void* user_data) {
   auto* self = static_cast<TdmClient*>(user_data);
-  FT_ASSERT(self != nullptr);
+  if (!self) {
+    return;
+  }
 
   std::lock_guard<std::mutex> lock(self->engine_mutex_);
   if (self->engine_) {
