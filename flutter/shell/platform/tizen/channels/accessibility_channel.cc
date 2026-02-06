@@ -71,6 +71,12 @@ AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
         FT_LOG(Info) << "Received " << *type << " message.";
         if (*type == "announce" && data) {
           EncodableValueHolder<std::string> msg(data.value, "message");
+          // Flutter 3.35+ includes a required `viewId` field in the announce
+          // payload for multi-window support. Tizen currently ignores it.
+          EncodableValueHolder<int32_t> view_id(data.value, "viewId");
+          if (view_id) {
+            FT_LOG(Info) << "announce.viewId=" << *view_id;
+          }
           if (msg && accessibility_bus_) {
             Eldbus_Message* eldbus_message = eldbus_message_method_call_new(
                 kAtspiDirectReadBus, kAtspiDirectReadPath,
