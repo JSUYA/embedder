@@ -119,6 +119,9 @@ void PlatformChannel::HandleMethodCall(
     }
     if (arguments->IsString()) {
       type = arguments[0].GetString();
+    } else if (!arguments->IsNull()) {
+      result->Error("Invalid arguments");
+      return;
     }
     HapticFeedbackVibrate(type);
     result->Success();
