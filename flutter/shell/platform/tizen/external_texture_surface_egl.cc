@@ -75,6 +75,14 @@ bool ExternalTextureSurfaceEGL::PopulateGLTexture(
   PFNEGLCREATEIMAGEKHRPROC n_eglCreateImageKHR =
       reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(
           eglGetProcAddress("eglCreateImageKHR"));
+  if (!n_eglCreateImageKHR) {
+    FT_LOG(Error) << "eglCreateImageKHR proc address lookup failed.";
+    if (gpu_surface->release_callback) {
+      gpu_surface->release_callback(gpu_surface->release_context);
+    }
+    return false;
+  }
+
   EGLImageKHR egl_src_image = nullptr;
 
   if (state_->gl_extension == ExternalTextureExtensionType::kNativeSurface) {
