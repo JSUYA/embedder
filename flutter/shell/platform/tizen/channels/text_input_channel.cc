@@ -31,6 +31,7 @@ constexpr char kTextInputType[] = "inputType";
 constexpr char kTextInputTypeName[] = "name";
 constexpr char kTextInputTypeSigned[] = "signed";
 constexpr char kTextInputTypeDecimal[] = "decimal";
+constexpr char kHintLocales[] = "hintLocales";
 constexpr char kComposingBaseKey[] = "composingBase";
 constexpr char kComposingExtentKey[] = "composingExtent";
 constexpr char kSelectionAffinityKey[] = "selectionAffinity";
@@ -179,6 +180,20 @@ void TextInputChannel::HandleMethodCall(
         text_capitalization_iter->value.IsString()) {
       text_capitalization_ = text_capitalization_iter->value.GetString();
       input_method_context_->SetAutocapitalType(text_capitalization_);
+    }
+
+    hint_locales_.clear();
+    auto hint_locales_iter = client_config.FindMember(kHintLocales);
+    if (hint_locales_iter != client_config.MemberEnd() &&
+        hint_locales_iter->value.IsArray()) {
+      for (auto& v : hint_locales_iter->value.GetArray()) {
+        if (v.IsString()) {
+          hint_locales_.push_back(v.GetString());
+        }
+      }
+      if (!hint_locales_.empty()) {
+        FT_LOG(Info) << "TextInput.hintLocales[0]=" << hint_locales_[0];
+      }
     }
 
     input_type_ = "";

@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/binary_messenger.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/method_channel.h"
@@ -79,6 +80,10 @@ class TextInputChannel {
   // Automatic text capitalization type. See available options:
   // https://api.flutter.dev/flutter/services/TextCapitalization.html
   std::string text_capitalization_ = "";
+
+  // Preferred input language hints (BCP-47 tags) from the framework.
+  // See TextInputConfiguration.hintLocales.
+  std::vector<std::string> hint_locales_;
 };
 
 }  // namespace flutter
