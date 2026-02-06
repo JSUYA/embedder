@@ -60,7 +60,17 @@ void TizenClipboard::SendData(void* event) {
     return;
   }
 
-  write(send_event->fd, data_.c_str(), data_.length());
+  const char* buf = data_.c_str();
+  size_t remaining = data_.length();
+  while (remaining > 0) {
+    ssize_t written = write(send_event->fd, buf, remaining);
+    if (written <= 0) {
+      FT_LOG(Error) << "Failed to write clipboard data.";
+      break;
+    }
+    buf += written;
+    remaining -= static_cast<size_t>(written);
+  }
   close(send_event->fd);
 }
 
