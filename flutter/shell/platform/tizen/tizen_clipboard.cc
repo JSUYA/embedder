@@ -20,7 +20,11 @@ TizenClipboard::TizenClipboard(TizenViewBase* view) {
   if (auto* window = dynamic_cast<TizenWindowEcoreWl2*>(view)) {
     auto* ecore_wl2_window =
         static_cast<Ecore_Wl2_Window*>(window->GetNativeHandle());
-    display_ = ecore_wl2_window_display_get(ecore_wl2_window);
+    if (ecore_wl2_window) {
+      display_ = ecore_wl2_window_display_get(ecore_wl2_window);
+    } else {
+      display_ = ecore_wl2_connected_display_get(NULL);
+    }
   } else {
     display_ = ecore_wl2_connected_display_get(NULL);
   }
