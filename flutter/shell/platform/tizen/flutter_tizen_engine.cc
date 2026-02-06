@@ -237,6 +237,8 @@ bool FlutterTizenEngine::RunEngine() {
       internal_plugin_registrar_->messenger());
   lifecycle_channel_ = std::make_unique<LifecycleChannel>(
       internal_plugin_registrar_->messenger());
+  status_bar_channel_ = std::make_unique<StatusBarChannel>(
+      internal_plugin_registrar_->messenger());
   settings_channel_ = std::make_unique<SettingsChannel>(
       internal_plugin_registrar_->messenger());
 
