@@ -50,17 +50,18 @@ void WindowChannel::HandleMethodCall(
       result->Error("Invalid arguments");
       return;
     }
-    EncodableValueHolder<int32_t> x(arguments, "x");
-    EncodableValueHolder<int32_t> y(arguments, "y");
-    EncodableValueHolder<int32_t> width(arguments, "width");
-    EncodableValueHolder<int32_t> height(arguments, "height");
+    // Accept int32/int64 values.
+    EncodableValueHolder<int64_t> x(arguments, "x");
+    EncodableValueHolder<int64_t> y(arguments, "y");
+    EncodableValueHolder<int64_t> width(arguments, "width");
+    EncodableValueHolder<int64_t> height(arguments, "height");
 
     TizenGeometry geometry = window_->GetGeometry();
     if (window_->SetGeometry({
-            x ? *x : geometry.left,
-            y ? *y : geometry.top,
-            width ? *width : geometry.width,
-            height ? *height : geometry.height,
+            x ? static_cast<int32_t>(*x) : geometry.left,
+            y ? static_cast<int32_t>(*y) : geometry.top,
+            width ? static_cast<int32_t>(*width) : geometry.width,
+            height ? static_cast<int32_t>(*height) : geometry.height,
         })) {
       result->Success();
     } else {
