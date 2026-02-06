@@ -65,6 +65,8 @@ constexpr char kUnknownClipboardError[] =
     "Unknown error during clipboard data retrieval";
 
 constexpr char kSoundTypeClick[] = "SystemSoundType.click";
+constexpr char kSoundTypeTick[] = "SystemSoundType.tick";
+constexpr char kSoundTypeAlert[] = "SystemSoundType.alert";
 #ifdef COMMON_PROFILE
 constexpr char kSystemUiOverlayBottom[] = "SystemUiOverlay.bottom";
 #endif
@@ -254,8 +256,12 @@ void PlatformChannel::SystemNavigatorPop() {
 }
 
 void PlatformChannel::PlaySystemSound(const std::string& sound_type) {
-  if (sound_type == kSoundTypeClick) {
+  // Framework passes enum.toString(), e.g. "SystemSoundType.click".
+  if (sound_type == kSoundTypeClick || sound_type == kSoundTypeTick) {
     FeedbackManager::GetInstance().PlayTapSound();
+  } else if (sound_type == kSoundTypeAlert) {
+    // No dedicated alert sound on Tizen; fall back to generic.
+    FeedbackManager::GetInstance().PlaySound();
   } else {
     FeedbackManager::GetInstance().PlaySound();
   }
