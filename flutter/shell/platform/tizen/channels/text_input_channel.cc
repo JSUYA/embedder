@@ -249,6 +249,11 @@ void TextInputChannel::HandleMethodCall(
                     "Selection base/extent values invalid.");
       return;
     }
+    if (!selection_base->value.IsInt() || !selection_extent->value.IsInt()) {
+      result->Error(kInternalConsistencyError,
+                    "Selection base/extent values invalid.");
+      return;
+    }
     int selection_base_value = selection_base->value.GetInt();
     int selection_extent_value = selection_extent->value.GetInt();
 
@@ -258,12 +263,14 @@ void TextInputChannel::HandleMethodCall(
 
     auto composing_base = args.FindMember(kComposingBaseKey);
     auto composing_extent = args.FindMember(kComposingBaseKey);
-    int composing_base_value = composing_base != args.MemberEnd()
-                                   ? composing_base->value.GetInt()
-                                   : -1;
-    int composing_extent_value = composing_extent != args.MemberEnd()
-                                     ? composing_extent->value.GetInt()
-                                     : -1;
+    int composing_base_value =
+        (composing_base != args.MemberEnd() && composing_base->value.IsInt())
+            ? composing_base->value.GetInt()
+            : -1;
+    int composing_extent_value =
+        (composing_extent != args.MemberEnd() && composing_extent->value.IsInt())
+            ? composing_extent->value.GetInt()
+            : -1;
 
     if (composing_base_value == -1 && composing_extent_value == -1) {
       active_model_->EndComposing();
