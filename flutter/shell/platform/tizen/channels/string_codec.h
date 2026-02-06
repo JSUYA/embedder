@@ -43,9 +43,13 @@ class StringCodec : public MessageCodec<EncodableValue> {
   // |flutter::MessageCodec|
   std::unique_ptr<std::vector<uint8_t>> EncodeMessageInternal(
       const EncodableValue& message) const override {
-    auto string_value = std::get<std::string>(message);
-    return std::make_unique<std::vector<uint8_t>>(string_value.begin(),
-                                                  string_value.end());
+    const auto* string_value = std::get_if<std::string>(&message);
+    if (!string_value) {
+      // Invalid message type. Return empty payload to avoid termination.
+      return std::make_unique<std::vector<uint8_t>>();
+    }
+    return std::make_unique<std::vector<uint8_t>>(string_value->begin(),
+                                                  string_value->end());
   }
 
  private:
