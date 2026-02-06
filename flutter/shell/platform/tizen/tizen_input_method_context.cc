@@ -235,23 +235,32 @@ InputPanelGeometry TizenInputMethodContext::GetInputPanelGeometry() {
 }
 
 void TizenInputMethodContext::ResetInputMethodContext() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
   ecore_imf_context_reset(imf_context_);
 }
 
 void TizenInputMethodContext::ShowInputPanel() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
   ecore_imf_context_input_panel_show(imf_context_);
   ecore_imf_context_focus_in(imf_context_);
 }
 
 void TizenInputMethodContext::HideInputPanel() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
   ecore_imf_context_focus_out(imf_context_);
   ecore_imf_context_input_panel_hide(imf_context_);
 }
 
 bool TizenInputMethodContext::IsInputPanelShown() {
+  if (!imf_context_) {
+    return false;
+  }
   Ecore_IMF_Input_Panel_State state =
       ecore_imf_context_input_panel_state_get(imf_context_);
   return state == ECORE_IMF_INPUT_PANEL_STATE_SHOW;
@@ -259,7 +268,9 @@ bool TizenInputMethodContext::IsInputPanelShown() {
 
 void TizenInputMethodContext::SetInputPanelLayout(
     const std::string& input_type) {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
   Ecore_IMF_Input_Panel_Layout panel_layout =
       TextInputTypeToEcoreImfInputPanelLayout(input_type);
   ecore_imf_context_input_panel_layout_set(imf_context_, panel_layout);
@@ -267,6 +278,9 @@ void TizenInputMethodContext::SetInputPanelLayout(
 
 void TizenInputMethodContext::SetInputPanelLayoutVariation(bool is_signed,
                                                            bool is_decimal) {
+  if (!imf_context_) {
+    return;
+  }
   Ecore_IMF_Input_Panel_Layout_Numberonly_Variation variation;
   if (is_signed && is_decimal) {
     variation =
@@ -282,6 +296,9 @@ void TizenInputMethodContext::SetInputPanelLayoutVariation(bool is_signed,
 }
 
 void TizenInputMethodContext::SetAutocapitalType(const std::string& type) {
+  if (!imf_context_) {
+    return;
+  }
   Ecore_IMF_Autocapital_Type autocapital_type = ECORE_IMF_AUTOCAPITAL_TYPE_NONE;
 
   if (type == "TextCapitalization.characters") {
