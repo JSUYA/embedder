@@ -213,10 +213,15 @@ AppControlResult AppControl::GetExtraData(EncodableMap& map) {
 AppControlResult AppControl::AddExtraData(std::string key,
                                           EncodableValue value) {
   if (std::holds_alternative<EncodableList>(value)) {
+    const auto* list = std::get_if<EncodableList>(&value);
+    if (!list) {
+      return APP_ERROR_INVALID_PARAMETER;
+    }
+
     auto strings = std::vector<const char*>();
-    for (const EncodableValue& value : std::get<EncodableList>(value)) {
-      if (std::holds_alternative<std::string>(value)) {
-        strings.push_back(std::get<std::string>(value).c_str());
+    for (const EncodableValue& list_value : *list) {
+      if (std::holds_alternative<std::string>(list_value)) {
+        strings.push_back(std::get<std::string>(list_value).c_str());
       } else {
         return APP_ERROR_INVALID_PARAMETER;
       }
