@@ -105,7 +105,7 @@ void PlatformChannel::HandleMethodCall(
     SystemNavigatorPop();
     result->Success();
   } else if (method == kPlaySoundMethod) {
-    if (!arguments) {
+    if (!arguments || !arguments->IsString()) {
       result->Error("Invalid arguments");
       return;
     }
