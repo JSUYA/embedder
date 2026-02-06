@@ -47,6 +47,8 @@ constexpr char kSetSystemUIOverlayStyleMethod[] =
     "SystemChrome.setSystemUIOverlayStyle";
 constexpr char kIsLiveTextInputAvailable[] =
     "LiveText.isLiveTextInputAvailable";
+constexpr char kShowSystemContextMenu[] = "ContextMenu.showSystemContextMenu";
+constexpr char kHideSystemContextMenu[] = "ContextMenu.hideSystemContextMenu";
 
 constexpr char kExitTypeKey[] = "type";
 constexpr char kExitTypeCancelable[] = "cancelable";
@@ -236,7 +238,9 @@ void PlatformChannel::HandleMethodCall(
     result->Success();
   } else if (method == kSetApplicationSwitcherDescriptionMethod ||
              method == kSetSystemUIOverlayStyleMethod ||
-             method == kIsLiveTextInputAvailable) {
+             method == kIsLiveTextInputAvailable ||
+             method == kShowSystemContextMenu ||
+             method == kHideSystemContextMenu) {
     // Not supported on Tizen. Ignore.
     result->Success();
   } else {
