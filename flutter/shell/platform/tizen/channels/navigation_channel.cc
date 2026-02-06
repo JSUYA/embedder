@@ -27,21 +27,15 @@ NavigationChannel::NavigationChannel(BinaryMessenger* messenger)
 NavigationChannel::~NavigationChannel() {}
 
 void NavigationChannel::SetInitialRoute(const std::string& initialRoute) {
-  auto args = std::make_unique<rapidjson::Document>(rapidjson::kObjectType);
-  args->Parse("\"" + initialRoute + "\"");
-
-  if (!args->HasParseError()) {
-    channel_->InvokeMethod(kSetInitialRouteMethod, std::move(args));
-  }
+  auto args = std::make_unique<rapidjson::Document>();
+  args->SetString(initialRoute.c_str(), args->GetAllocator());
+  channel_->InvokeMethod(kSetInitialRouteMethod, std::move(args));
 }
 
 void NavigationChannel::PushRoute(const std::string& route) {
-  auto args = std::make_unique<rapidjson::Document>(rapidjson::kObjectType);
-  args->Parse("\"" + route + "\"");
-
-  if (!args->HasParseError()) {
-    channel_->InvokeMethod(kPushRouteMethod, std::move(args));
-  }
+  auto args = std::make_unique<rapidjson::Document>();
+  args->SetString(route.c_str(), args->GetAllocator());
+  channel_->InvokeMethod(kPushRouteMethod, std::move(args));
 }
 
 void NavigationChannel::PopRoute() {
