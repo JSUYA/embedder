@@ -686,6 +686,9 @@ uint32_t TizenWindowEcoreWl2::GetResourceId() {
   if (resource_id_ > 0) {
     return resource_id_;
   }
+  if (!ecore_wl2_display_ || !ecore_wl2_window_ || !wl2_display_) {
+    return 0;
+  }
   struct wl_registry* registry =
       ecore_wl2_display_registry_get(ecore_wl2_display_);
   if (!registry) {
