@@ -193,8 +193,13 @@ void KeyboardChannel::SendChannelEvent(const char* key,
         if (reply != nullptr) {
           std::unique_ptr<rapidjson::Document> decoded =
               JsonMessageCodec::GetInstance().DecodeMessage(reply, reply_size);
-          bool handled = (*decoded)[kHandledKey].GetBool();
-          ResolvePendingEvent(sequence_id, handled);
+          if (decoded->HasMember(kHandledKey) && (*decoded)[kHandledKey].IsBool()) {
+            bool handled = (*decoded)[kHandledKey].GetBool();
+            ResolvePendingEvent(sequence_id, handled);
+          } else {
+            // Malformed reply; assume unhandled.
+            ResolvePendingEvent(sequence_id, false);
+          }
         }
       });
 }
