@@ -130,7 +130,7 @@ void PlatformChannel::HandleMethodCall(
 
     // https://api.flutter.dev/flutter/services/Clipboard/kTextPlain-constant.html
     // The API only supports the plain text format.
-    if (strcmp(arguments[0].GetString(), kTextPlainFormat) != 0) {
+    if (!arguments->IsString() || strcmp(arguments[0].GetString(), kTextPlainFormat) != 0) {
       result->Error(kUnknownClipboardFormatError,
                     "Clipboard API only supports text.");
       return;
