@@ -21,6 +21,7 @@ class LifecycleChannel {
   void AppIsResumed();
   void AppIsPaused();
   void AppIsDetached();
+  void AppIsHidden();
 
  private:
   std::unique_ptr<BasicMessageChannel<EncodableValue>> channel_;

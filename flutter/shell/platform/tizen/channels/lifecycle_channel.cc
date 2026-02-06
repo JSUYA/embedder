@@ -17,6 +17,7 @@ constexpr char kInactive[] = "AppLifecycleState.inactive";
 constexpr char kResumed[] = "AppLifecycleState.resumed";
 constexpr char kPaused[] = "AppLifecycleState.paused";
 constexpr char kDetached[] = "AppLifecycleState.detached";
+constexpr char kHidden[] = "AppLifecycleState.hidden";
 
 }  // namespace
 
@@ -46,6 +47,11 @@ void LifecycleChannel::AppIsPaused() {
 void LifecycleChannel::AppIsDetached() {
   FT_LOG(Info) << "Sending " << kDetached << " message.";
   channel_->Send(EncodableValue(kDetached));
+}
+
+void LifecycleChannel::AppIsHidden() {
+  FT_LOG(Info) << "Sending " << kHidden << " message.";
+  channel_->Send(EncodableValue(kHidden));
 }
 
 }  // namespace flutter
