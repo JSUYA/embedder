@@ -69,7 +69,7 @@ AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
 
       if (type) {
         FT_LOG(Info) << "Received " << *type << " message.";
-        if (*type == "announce" && data) {
+        if ((*type == "announce" || *type == "tooltip") && data) {
           EncodableValueHolder<std::string> msg(data.value, "message");
           if (msg && accessibility_bus_) {
             Eldbus_Message* eldbus_message = eldbus_message_method_call_new(
