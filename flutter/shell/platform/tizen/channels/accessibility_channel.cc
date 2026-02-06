@@ -91,9 +91,15 @@ AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
 AccessibilityChannel::~AccessibilityChannel() {
   channel_->SetMessageHandler(nullptr);
 
-  eldbus_connection_unref(accessibility_bus_);
-  eldbus_connection_unref(session_bus_);
-  eldbus_object_unref(bus_);
+  if (accessibility_bus_) {
+    eldbus_connection_unref(accessibility_bus_);
+  }
+  if (session_bus_) {
+    eldbus_connection_unref(session_bus_);
+  }
+  if (bus_) {
+    eldbus_object_unref(bus_);
+  }
 
   eldbus_shutdown();
 }
