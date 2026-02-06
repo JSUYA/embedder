@@ -101,6 +101,15 @@ void PlatformChannel::HandleMethodCall(
   const std::string& method = method_call.method_name();
   const rapidjson::Document* arguments = method_call.arguments();
 
+  auto unwrap_single = [](const rapidjson::Value& v) -> const rapidjson::Value& {
+    // Some embedders historically treated arguments as a single-element list.
+    // The framework typically sends the argument value directly.
+    if (v.IsArray() && v.Size() == 1) {
+      return v[0];
+    }
+    return v;
+  };
+
   if (method == kSystemNavigatorPopMethod) {
     SystemNavigatorPop();
     result->Success();
@@ -109,16 +118,20 @@ void PlatformChannel::HandleMethodCall(
       result->Error("Invalid arguments");
       return;
     }
-    PlaySystemSound(arguments[0].GetString());
-    result->Success();
-  } else if (method == kHapticFeedbackVibrateMethod) {
-    std::string type;
-    if (!arguments) {
+    const rapidjson::Value& arg = unwrap_single(*arguments);
+    if (!arg.IsString()) {
       result->Error("Invalid arguments");
       return;
     }
-    if (arguments->IsString()) {
-      type = arguments[0].GetString();
+    PlaySystemSound(arg.GetString());
+    result->Success();
+  } else if (method == kHapticFeedbackVibrateMethod) {
+    std::string type;
+    if (arguments) {
+      const rapidjson::Value& arg = unwrap_single(*arguments);
+      if (arg.IsString()) {
+        type = arg.GetString();
+      }
     }
     HapticFeedbackVibrate(type);
     result->Success();
@@ -128,9 +141,15 @@ void PlatformChannel::HandleMethodCall(
       return;
     }
 
+    const rapidjson::Value& arg = unwrap_single(*arguments);
+    if (!arg.IsString()) {
+      result->Error("Invalid arguments");
+      return;
+    }
+
     // https://api.flutter.dev/flutter/services/Clipboard/kTextPlain-constant.html
     // The API only supports the plain text format.
-    if (strcmp(arguments[0].GetString(), kTextPlainFormat) != 0) {
+    if (strcmp(arg.GetString(), kTextPlainFormat) != 0) {
       result->Error(kUnknownClipboardFormatError,
                     "Clipboard API only supports text.");
       return;
@@ -215,10 +234,16 @@ void PlatformChannel::HandleMethodCall(
       result->Error("Invalid arguments");
       return;
     }
-    const rapidjson::Document& list = arguments[0];
+    const rapidjson::Value& list = unwrap_single(*arguments);
+    if (!list.IsArray()) {
+      result->Error("Invalid arguments");
+      return;
+    }
     std::vector<std::string> overlays;
     for (auto iter = list.Begin(); iter != list.End(); ++iter) {
-      overlays.push_back(iter->GetString());
+      if (iter->IsString()) {
+        overlays.push_back(iter->GetString());
+      }
     }
     SetEnabledSystemUiOverlays(overlays);
     result->Success();
@@ -227,10 +252,16 @@ void PlatformChannel::HandleMethodCall(
       result->Error("Invalid arguments");
       return;
     }
-    const rapidjson::Document& list = arguments[0];
+    const rapidjson::Value& list = unwrap_single(*arguments);
+    if (!list.IsArray()) {
+      result->Error("Invalid arguments");
+      return;
+    }
     std::vector<std::string> orientations;
     for (auto iter = list.Begin(); iter != list.End(); ++iter) {
-      orientations.push_back(iter->GetString());
+      if (iter->IsString()) {
+        orientations.push_back(iter->GetString());
+      }
     }
     SetPreferredOrientations(orientations);
     result->Success();
