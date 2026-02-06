@@ -227,8 +227,10 @@ bool TizenInputMethodContext::HandleNuiKeyEvent(const char* device_name,
 #endif
 
 InputPanelGeometry TizenInputMethodContext::GetInputPanelGeometry() {
-  FT_ASSERT(imf_context_);
-  InputPanelGeometry geometry;
+  InputPanelGeometry geometry = {};
+  if (!imf_context_) {
+    return geometry;
+  }
   ecore_imf_context_input_panel_geometry_get(
       imf_context_, &geometry.x, &geometry.y, &geometry.w, &geometry.h);
   return geometry;
