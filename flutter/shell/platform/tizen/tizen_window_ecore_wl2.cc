@@ -664,6 +664,9 @@ int32_t TizenWindowEcoreWl2::GetRotation() {
 }
 
 int32_t TizenWindowEcoreWl2::GetDpi() {
+  if (!ecore_wl2_window_) {
+    return 0;
+  }
   Ecore_Wl2_Output* output = ecore_wl2_window_output_find(ecore_wl2_window_);
   if (!output) {
     FT_LOG(Error) << "Could not find an output associated with the window.";
