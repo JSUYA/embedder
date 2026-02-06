@@ -158,7 +158,11 @@ bool ExternalTextureSurfaceEGL::PopulateGLTexture(
     PFNEGLDESTROYIMAGEKHRPROC n_eglDestroyImageKHR =
         reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(
             eglGetProcAddress("eglDestroyImageKHR"));
-    n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image);
+    if (n_eglDestroyImageKHR) {
+      n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image);
+    } else {
+      FT_LOG(Error) << "eglDestroyImageKHR proc address lookup failed.";
+    }
   }
   opengl_texture->target = GL_TEXTURE_EXTERNAL_OES;
   opengl_texture->name = state_->gl_texture;
