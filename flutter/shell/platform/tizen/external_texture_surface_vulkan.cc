@@ -24,11 +24,10 @@ ExternalTextureSurfaceVulkan::~ExternalTextureSurfaceVulkan() {
 bool ExternalTextureSurfaceVulkan::CreateBuffer(
     const tbm_surface_h tbm_surface) {
   if (IsSupportDisjoint(tbm_surface)) {
-    /** TODO as I konw, skia doesn't support disjoint,we need consider to
-     *  implement buffer map solution.
-    vulkan_buffer_ = std::make_unique<ExternalTextureSurfaceVulkanBufferMap>(
-        vulkan_renderer_);
-    */
+    // TODO: Skia does not support disjoint DMA-BUF import. Consider
+    // implementing a buffer-map based solution for disjoint surfaces.
+    // vulkan_buffer_ = std::make_unique<ExternalTextureSurfaceVulkanBufferMap>(
+    //     vulkan_renderer_);
   } else {
     vulkan_buffer_ = std::make_unique<ExternalTextureSurfaceVulkanBufferDma>(
         vulkan_renderer_);
