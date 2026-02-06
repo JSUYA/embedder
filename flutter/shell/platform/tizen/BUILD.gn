@@ -77,6 +77,7 @@ template("embedder") {
       "channels/navigation_channel.cc",
       "channels/platform_channel.cc",
       "channels/platform_view_channel.cc",
+      "channels/sensitive_content_channel.cc",
       "channels/settings_channel.cc",
       "channels/text_input_channel.cc",
       "channels/window_channel.cc",

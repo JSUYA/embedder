@@ -19,6 +19,7 @@
 #include "flutter/shell/platform/tizen/channels/lifecycle_channel.h"
 #include "flutter/shell/platform/tizen/channels/navigation_channel.h"
 #include "flutter/shell/platform/tizen/channels/platform_view_channel.h"
+#include "flutter/shell/platform/tizen/channels/sensitive_content_channel.h"
 #include "flutter/shell/platform/tizen/channels/settings_channel.h"
 #include "flutter/shell/platform/tizen/flutter_project_bundle.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_display_monitor.h"
@@ -261,6 +262,7 @@ class FlutterTizenEngine {
   std::unique_ptr<NavigationChannel> navigation_channel_;
 
   // A plugin that implements the Flutter settings channel.
+  std::unique_ptr<SensitiveContentChannel> sensitive_content_channel_;
   std::unique_ptr<SettingsChannel> settings_channel_;
 
   // The event loop for the main thread that allows for delayed task execution.
