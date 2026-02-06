@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/method_result_functions.h"
 #include "flutter/shell/platform/common/json_method_codec.h"
@@ -135,27 +136,35 @@ void PlatformChannel::HandleMethodCall(
                     "Clipboard API only supports text.");
       return;
     }
-    auto* result_ptr = result.release();
-    if (!GetClipboardData([result_ptr](std::optional<std::string> data) {
-          if (!data.has_value()) {
-            result_ptr->Error(kUnknownClipboardError, "Internal error.");
-            delete result_ptr;
-            return;
-          }
+    auto result_box = std::make_shared<
+        std::unique_ptr<MethodResult<rapidjson::Document>>>(std::move(result));
 
-          rapidjson::Document document;
-          document.SetObject();
-          rapidjson::Document::AllocatorType& allocator =
-              document.GetAllocator();
-          document.AddMember(rapidjson::Value(kTextKey, allocator),
-                             rapidjson::Value(data.value(), allocator),
-                             allocator);
-          result_ptr->Success(document);
-          delete result_ptr;
-        })) {
-      result_ptr->Error(kUnknownClipboardError, "Internal error.");
-      delete result_ptr;
+    auto on_clipboard = [result_box](std::optional<std::string> data) {
+      if (!(*result_box)) {
+        return;
+      }
+
+      if (!data.has_value()) {
+        (*result_box)->Error(kUnknownClipboardError, "Internal error.");
+        result_box->reset();
+        return;
+      }
+
+      rapidjson::Document document;
+      document.SetObject();
+      rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
+      document.AddMember(rapidjson::Value(kTextKey, allocator),
+                         rapidjson::Value(data.value(), allocator), allocator);
+      (*result_box)->Success(document);
+      result_box->reset();
     };
+
+    if (!GetClipboardData(on_clipboard)) {
+      if (*result_box) {
+        (*result_box)->Error(kUnknownClipboardError, "Internal error.");
+        result_box->reset();
+      }
+    }
   } else if (method == kSetClipboardDataMethod) {
     if (!arguments) {
       result->Error("Invalid arguments");
