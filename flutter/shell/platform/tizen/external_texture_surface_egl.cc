@@ -153,12 +153,23 @@ bool ExternalTextureSurfaceEGL::PopulateGLTexture(
   PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES =
       reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(
           eglGetProcAddress("glEGLImageTargetTexture2DOES"));
+  if (!glEGLImageTargetTexture2DOES) {
+    FT_LOG(Error) << "glEGLImageTargetTexture2DOES proc address lookup failed.";
+    if (gpu_surface->release_callback) {
+      gpu_surface->release_callback(gpu_surface->release_context);
+    }
+    return false;
+  }
   glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, egl_src_image);
   if (egl_src_image) {
     PFNEGLDESTROYIMAGEKHRPROC n_eglDestroyImageKHR =
         reinterpret_cast<PFNEGLDESTROYIMAGEKHRPROC>(
             eglGetProcAddress("eglDestroyImageKHR"));
-    n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image);
+    if (n_eglDestroyImageKHR) {
+      n_eglDestroyImageKHR(eglGetCurrentDisplay(), egl_src_image);
+    } else {
+      FT_LOG(Error) << "eglDestroyImageKHR proc address lookup failed.";
+    }
   }
   opengl_texture->target = GL_TEXTURE_EXTERNAL_OES;
   opengl_texture->name = state_->gl_texture;
