@@ -59,8 +59,16 @@ void ExternalTextureSurfaceVulkan::ReleaseBuffer() {
 
 bool ExternalTextureSurfaceVulkan::CreateOrUpdateImage(
     const FlutterDesktopGpuSurfaceDescriptor* descriptor) {
-  if (descriptor == nullptr || descriptor->handle == nullptr) {
+  if (descriptor == nullptr) {
     ReleaseBuffer();
+    return false;
+  }
+
+  if (descriptor->handle == nullptr) {
+    ReleaseBuffer();
+    if (descriptor->release_callback) {
+      descriptor->release_callback(descriptor->release_context);
+    }
     return false;
   }
 
