@@ -297,7 +297,9 @@ void TizenInputMethodContext::SetAutocapitalType(const std::string& type) {
 }
 
 void TizenInputMethodContext::RegisterEventCallbacks() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
 
   // commit callback
   event_callbacks_[ECORE_IMF_CALLBACK_COMMIT] =
@@ -356,7 +358,9 @@ void TizenInputMethodContext::RegisterEventCallbacks() {
 }
 
 void TizenInputMethodContext::UnregisterEventCallbacks() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
   ecore_imf_context_event_callback_del(
       imf_context_, ECORE_IMF_CALLBACK_COMMIT,
       event_callbacks_[ECORE_IMF_CALLBACK_COMMIT]);
@@ -418,7 +422,9 @@ void TizenInputMethodContext::InputPanelStateChangedCallback(
 }
 
 void TizenInputMethodContext::RegisterInputPanelEventCallback() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
 
   ecore_imf_context_input_panel_event_callback_add(
       imf_context_, ECORE_IMF_INPUT_PANEL_STATE_EVENT,
@@ -426,7 +432,9 @@ void TizenInputMethodContext::RegisterInputPanelEventCallback() {
 }
 
 void TizenInputMethodContext::UnregisterInputPanelEventCallback() {
-  FT_ASSERT(imf_context_);
+  if (!imf_context_) {
+    return;
+  }
 
   ecore_imf_context_input_panel_event_callback_del(
       imf_context_, ECORE_IMF_INPUT_PANEL_STATE_EVENT,
