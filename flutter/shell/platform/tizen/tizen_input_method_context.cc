@@ -192,6 +192,10 @@ bool TizenInputMethodContext::HandleNuiKeyEvent(const char* device_name,
                                                 uint32_t scan_code,
                                                 size_t timestamp,
                                                 bool is_down) {
+  if (!imf_context_) {
+    return false;
+  }
+
   Ecore_Event_Key event;
   event.keyname = event.key = key ? key : "";
   event.string = string ? string : "";
