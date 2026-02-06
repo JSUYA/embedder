@@ -90,6 +90,13 @@ bool ExternalTextureSurfaceEGLImpeller::CreateOrUpdateEglImage(
     PFNEGLCREATEIMAGEKHRPROC n_eglCreateImageKHR =
         reinterpret_cast<PFNEGLCREATEIMAGEKHRPROC>(
             eglGetProcAddress("eglCreateImageKHR"));
+    if (!n_eglCreateImageKHR) {
+      FT_LOG(Error) << "eglCreateImageKHR proc address lookup failed.";
+      if (descriptor->release_callback) {
+        descriptor->release_callback(descriptor->release_context);
+      }
+      return false;
+    }
 
     if (state_->gl_extension == ExternalTextureExtensionType::kNativeSurface) {
       const EGLint attribs[] = {EGL_IMAGE_PRESERVED_KHR, EGL_TRUE, EGL_NONE,
