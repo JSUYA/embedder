@@ -253,7 +253,7 @@ void KeyboardChannel::SendEmbedderEvent(const char* key,
   }
 
   FlutterKeyEvent event = {};
-  event.struct_size = sizeof(FlutterKeyEvent),
+  event.struct_size = sizeof(FlutterKeyEvent);
   event.timestamp = static_cast<double>(
       std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::steady_clock::now().time_since_epoch())
