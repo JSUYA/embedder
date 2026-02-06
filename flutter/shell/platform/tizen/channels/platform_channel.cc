@@ -163,7 +163,7 @@ void PlatformChannel::HandleMethodCall(
     }
     const rapidjson::Value& document = *arguments;
     auto iter = document.FindMember(kTextKey);
-    if (iter == document.MemberEnd()) {
+    if (iter == document.MemberEnd() || !iter->value.IsString()) {
       result->Error(kUnknownClipboardError, "Invalid message format.");
       return;
     }
