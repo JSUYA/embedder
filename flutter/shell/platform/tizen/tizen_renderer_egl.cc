@@ -358,7 +358,10 @@ void TizenRendererEgl::PrintEGLError() {
 }
 
 bool TizenRendererEgl::IsSupportedExtension(const char* name) {
-  return strstr(egl_extension_str_.c_str(), name);
+  if (!name) {
+    return false;
+  }
+  return strstr(egl_extension_str_.c_str(), name) != nullptr;
 }
 
 void TizenRendererEgl::ResizeSurface(int32_t width, int32_t height) {
@@ -366,6 +369,9 @@ void TizenRendererEgl::ResizeSurface(int32_t width, int32_t height) {
 }
 
 void* TizenRendererEgl::OnProcResolver(const char* name) {
+  if (!name) {
+    return nullptr;
+  }
   auto address = eglGetProcAddress(name);
   if (address != nullptr) {
     return reinterpret_cast<void*>(address);
