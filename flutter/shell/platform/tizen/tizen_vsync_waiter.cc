@@ -168,7 +168,9 @@ void TdmClient::VblankCallback(tdm_client_vblank* vblank,
                                unsigned int tv_usec,
                                void* user_data) {
   auto* self = static_cast<TdmClient*>(user_data);
-  FT_ASSERT(self != nullptr);
+  if (!self) {
+    return;
+  }
 
   std::lock_guard<std::mutex> lock(self->engine_mutex_);
   if (self->engine_) {
