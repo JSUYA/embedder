@@ -277,10 +277,19 @@ bool FlutterTizenEngine::StopEngine() {
 
     {
       std::lock_guard<std::mutex> lock(vsync_mutex_);
-      if (vsync_waiter_) {
-        vsync_waiter_.reset();
-      }
+      vsync_waiter_.reset();
     }
+
+    // Tear down internal channels before shutting down the engine to make sure
+    // their message handlers are removed.
+    navigation_channel_.reset();
+    keyboard_channel_.reset();
+    settings_channel_.reset();
+    lifecycle_channel_.reset();
+    app_control_channel_.reset();
+    accessibility_channel_.reset();
+    internal_plugin_registrar_.reset();
+    texture_registrar_.reset();
 
     FlutterEngineResult result = embedder_api_.Shutdown(engine_);
     view_ = nullptr;
