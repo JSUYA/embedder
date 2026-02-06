@@ -62,8 +62,9 @@ AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
                      &accessibility_bus_, 100);
 
   channel_->SetMessageHandler([&](const auto& message, auto reply) {
-    if (std::holds_alternative<EncodableMap>(message)) {
-      auto map = std::get<EncodableMap>(message);
+    const auto* map_ptr = std::get_if<EncodableMap>(&message);
+    if (map_ptr) {
+      auto map = *map_ptr;
       EncodableValueHolder<std::string> type(&map, "type");
       EncodableValueHolder<EncodableMap> data(&map, "data");
 
