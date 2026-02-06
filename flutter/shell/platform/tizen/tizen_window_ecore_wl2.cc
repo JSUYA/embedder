@@ -660,6 +660,9 @@ TizenGeometry TizenWindowEcoreWl2::GetScreenGeometry() {
 }
 
 int32_t TizenWindowEcoreWl2::GetRotation() {
+  if (!ecore_wl2_window_) {
+    return 0;
+  }
   return ecore_wl2_window_rotation_get(ecore_wl2_window_);
 }
 
@@ -673,6 +676,9 @@ int32_t TizenWindowEcoreWl2::GetDpi() {
 }
 
 uintptr_t TizenWindowEcoreWl2::GetWindowId() {
+  if (!ecore_wl2_window_) {
+    return 0;
+  }
   return ecore_wl2_window_id_get(ecore_wl2_window_);
 }
 
