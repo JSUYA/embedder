@@ -65,12 +65,15 @@ class TizenVsyncWaiter {
 
     ~MessageLoop() { Quit(); }
 
-    void PostTask(Task task) {
+    bool PostTask(Task task) {
       {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (quit_)
+          return false;
         tasks_.push(std::move(task));
       }
       cond_.notify_one();
+      return true;
     }
 
     void Quit() {

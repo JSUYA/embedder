@@ -18,17 +18,20 @@ TizenVsyncWaiter::~TizenVsyncWaiter() {
 
 void TizenVsyncWaiter::AsyncWaitForVsync(intptr_t baton) {
   std::weak_ptr<TdmClient> tdm_client = tdm_client_;
-  message_loop_->PostTask([tdm_client_weak = std::move(tdm_client), baton]() {
-    if (auto tdm_client = tdm_client_weak.lock()) {
-      if (tdm_client->IsValid()) {
-        tdm_client->AwaitVblank(baton);
-      } else {
-        FT_LOG(Error) << "tdm client is invalid, task cancelled";
-      }
-    } else {
-      FT_LOG(Error) << "tdm client is null, task cancelled";
-    }
-  });
+  if (!message_loop_->PostTask(
+          [tdm_client_weak = std::move(tdm_client), baton]() {
+            if (auto tdm_client = tdm_client_weak.lock()) {
+              if (tdm_client->IsValid()) {
+                tdm_client->AwaitVblank(baton);
+              } else {
+                FT_LOG(Error) << "tdm client is invalid, task cancelled";
+              }
+            } else {
+              FT_LOG(Error) << "tdm client is null, task cancelled";
+            }
+          })) {
+    FT_LOG(Error) << "message loop is already stopped, task cancelled";
+  }
 }
 
 TdmClient::TdmClient(FlutterTizenEngine* engine) {
