@@ -7,7 +7,6 @@
 
 #include <tdm_client.h>
 
-#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -116,7 +115,7 @@ class TizenVsyncWaiter {
     std::queue<Task> tasks_;
     std::mutex mutex_;
     std::condition_variable cond_;
-    std::atomic<bool> quit_;
+    bool quit_;
     std::thread loop_thread_;
   };
 
