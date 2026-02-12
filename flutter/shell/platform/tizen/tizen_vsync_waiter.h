@@ -97,7 +97,9 @@ class TizenVsyncWaiter {
         {
           std::unique_lock<std::mutex> lock(mutex_);
           cond_.wait(lock, [this] { return !tasks_.empty() || quit_; });
-          if (quit_) {
+
+          // Drain pending tasks before exiting the thread.
+          if (quit_ && tasks_.empty()) {
             break;
           }
 
