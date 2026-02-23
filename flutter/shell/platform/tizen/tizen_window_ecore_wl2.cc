@@ -845,10 +845,21 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
                                                const char* interface,
                                                uint32_t version) {
   auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  TEMP_DIAG_ECORE_WL2("Registry global: name=" << name << " iface="
-                      << interface << " ver=" << version);
   if (!self) {
     return;
+  }
+
+  // [TEMP_DIAG_REMOVE] Keep registry logging readable (avoid log flood).
+  if (strcmp(interface, wl_compositor_interface.name) == 0 ||
+      strcmp(interface, xdg_wm_base_interface.name) == 0 ||
+      strcmp(interface, wl_shell_interface.name) == 0 ||
+      strcmp(interface, wl_seat_interface.name) == 0 ||
+      strcmp(interface, wl_output_interface.name) == 0 ||
+      strcmp(interface, tizen_surface_interface.name) == 0 ||
+      strcmp(interface, tizen_policy_interface.name) == 0 ||
+      strcmp(interface, tizen_keyrouter_interface.name) == 0) {
+    TEMP_DIAG_ECORE_WL2("Registry global: name=" << name << " iface="
+                        << interface << " ver=" << version);
   }
 
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
