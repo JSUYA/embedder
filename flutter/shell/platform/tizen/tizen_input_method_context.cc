@@ -172,6 +172,12 @@ void TizenInputMethodContext::UnregisterInputPanelEventCallback() {
 
 void TizenInputMethodContext::InitializeTextInput(
     wl_text_input_manager* text_input_manager) {
+  // [TEMP_DIAG_REMOVE] Disable wl_text_input integration temporarily.
+  // Some compositor stacks emit wl_text_input opcodes that still trigger
+  // listener aborts in the current direct-wayland migration path.
+  FT_LOG(Error) << "[TEMP_DIAG_REMOVE][IME] wl_text_input disabled for crash mitigation.";
+  return;
+
   if (!display_ || !seat_ || !surface_ || !text_input_manager) {
     FT_LOG(Info)
         << "wl_text_input is unavailable. Falling back to local text state.";

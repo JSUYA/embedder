@@ -322,12 +322,8 @@ bool TizenRendererEgl::OnPresent() {
     return false;
   }
 
-  TEMP_DIAG_EGL("eglSwapBuffers success. egl_surface=" << egl_surface_);
-  static int present_log_count = 0;
-  if (present_log_count < 5) {
-    FT_LOG(Info) << "EGL present success. count=" << (present_log_count + 1);
-    present_log_count++;
-  }
+  // [TEMP_DIAG_REMOVE] Avoid per-frame logging; it severely impacts pointer
+  // responsiveness on low-power targets.
   return true;
 }
 
