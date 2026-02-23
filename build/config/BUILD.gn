@@ -28,6 +28,11 @@ config("compiler") {
     "-Wl,-z,relro",
     "-Wl,-z,defs",
   ]
+
+  if (host_os == "mac") {
+    # Apple's ld64 cannot link Linux targets; force LLVM lld.
+    ldflags += [ "-fuse-ld=lld" ]
+  }
   lib_dirs = [
     "${sysroot_path}/usr/lib",
     "${sysroot_path}/usr/lib64",
@@ -192,10 +197,20 @@ toolchain("clang") {
   cc = "${toolchain_path}/bin/clang"
   cxx = "${toolchain_path}/bin/clang++"
   ld = "${toolchain_path}/bin/clang++"
-  ar = "${target_triple}-ar"
-  nm = "${target_triple}-nm"
-  readelf = "${target_triple}-readelf"
-  strip = "${target_triple}-strip"
+  if (host_os == "mac") {
+    # macOS hosts usually don't provide ${target_triple}-* binutils names.
+    # Use LLVM tools from the selected toolchain.
+    ar = "${toolchain_path}/bin/llvm-ar"
+    nm = "${toolchain_path}/bin/llvm-nm"
+    readelf = "${toolchain_path}/bin/llvm-readelf"
+    strip = "${toolchain_path}/bin/llvm-strip"
+  } else {
+    # Linux hosts keep using target-triple binutils (existing behavior).
+    ar = "${target_triple}-ar"
+    nm = "${target_triple}-nm"
+    readelf = "${target_triple}-readelf"
+    strip = "${target_triple}-strip"
+  }
 
   target_triple_flags = "--target=${target_triple}"
   sysroot_flags = "--sysroot=${sysroot_path}"

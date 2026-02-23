@@ -17,16 +17,12 @@ config("flutter_tizen_config") {
     "${sysroot_path}/usr/include/dali-adaptor",
     "${sysroot_path}/usr/include/dali-toolkit",
     "${sysroot_path}/usr/include/dlog",
-    "${sysroot_path}/usr/include/ecore-1",
-    "${sysroot_path}/usr/include/ecore-imf-1",
-    "${sysroot_path}/usr/include/ecore-input-1",
-    "${sysroot_path}/usr/include/ecore-wayland-1",
-    "${sysroot_path}/usr/include/ecore-wl2-1",
     "${sysroot_path}/usr/include/efl-1",
     "${sysroot_path}/usr/include/eina-1",
     "${sysroot_path}/usr/include/eina-1/eina",
     "${sysroot_path}/usr/include/eo-1",
     "${sysroot_path}/usr/include/feedback",
+    "${sysroot_path}/usr/include/glib-2.0",
     "${sysroot_path}/usr/include/system",
     "${sysroot_path}/usr/include/tzsh",
     "${sysroot_path}/usr/include/vconf",
@@ -34,6 +30,12 @@ config("flutter_tizen_config") {
     "${sysroot_path}/usr/include/glib-2.0",
     "${sysroot_path}/usr/lib/glib-2.0/include",
   ]
+
+  if (target_cpu == "arm64" || target_cpu == "x64") {
+    include_dirs += [ "${sysroot_path}/usr/lib64/glib-2.0/include" ]
+  } else {
+    include_dirs += [ "${sysroot_path}/usr/lib/glib-2.0/include" ]
+  }
 
   cflags_cc = [
     "-Wno-newline-eof",
@@ -98,7 +100,7 @@ template("embedder") {
       "tizen_renderer_egl.cc",
       "tizen_renderer_gl.cc",
       "tizen_vsync_waiter.cc",
-      "tizen_window_ecore_wl2.cc",
+      "tizen_window_wayland.cc",
     ]
 
     lib_dirs = [ "//engine/${target_cpu}" ]
@@ -113,19 +115,21 @@ template("embedder") {
       "capi-system-info",
       "capi-system-system-settings",
       "dlog",
-      "ecore",
-      "ecore_imf",
-      "ecore_input",
-      "ecore_wl2",
       "eina",
       "gio-2.0",
       "feedback",
       "flutter_engine",
+      "glib-2.0",
       "tbm",
+      "text-client",
       "tdm-client",
       "tizen-extension-client",
       "vconf",
       "wayland-client",
+      "wayland-cursor",
+      "wayland-egl",
+      "xdg-shell-client",
+      "xkbcommon",
       "EGL",
       "GLESv2",
     ]

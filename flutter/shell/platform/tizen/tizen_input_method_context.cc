@@ -4,433 +4,486 @@
 
 #include "tizen_input_method_context.h"
 
+#include <algorithm>
+
+#include <text-client-protocol.h>
+#include <wayland-client-protocol.h>
+
 #include "flutter/shell/platform/tizen/logger.h"
 
 namespace {
 
-const char* GetEcoreImfContextAvailableId() {
-  Eina_List* modules;
+constexpr uint32_t kInputPanelEventTypeState = 0;
 
-  modules = ecore_imf_context_available_ids_get();
-  if (modules) {
-    void* module;
-    EINA_LIST_FREE(modules, module) {
-      return static_cast<const char*>(module);
-    }
-  }
-  return nullptr;
-}
-
-Ecore_IMF_Input_Panel_Layout TextInputTypeToEcoreImfInputPanelLayout(
-    const std::string& text_input_type) {
-  if (text_input_type == "TextInputType.text" ||
-      text_input_type == "TextInputType.multiline") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_NORMAL;
-  } else if (text_input_type == "TextInputType.number") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY;
-  } else if (text_input_type == "TextInputType.phone") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_PHONENUMBER;
-  } else if (text_input_type == "TextInputType.datetime") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_DATETIME;
-  } else if (text_input_type == "TextInputType.emailAddress" ||
-             text_input_type == "TextInputType.twitter") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_EMAIL;
-  } else if (text_input_type == "TextInputType.url" ||
-             text_input_type == "TextInputType.webSearch") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_URL;
-  } else if (text_input_type == "TextInputType.visiblePassword") {
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_PASSWORD;
-  } else {
-    FT_LOG(Warn) << "The requested input type " << text_input_type
-                 << " is not supported.";
-    return ECORE_IMF_INPUT_PANEL_LAYOUT_NORMAL;
-  }
-}
-
-Ecore_IMF_Keyboard_Modifiers EcoreInputModifiersToEcoreImfModifiers(
-    unsigned int ecore_modifiers) {
-  unsigned int modifiers(ECORE_IMF_KEYBOARD_MODIFIER_NONE);
-  if (ecore_modifiers & ECORE_EVENT_MODIFIER_SHIFT) {
-    modifiers |= ECORE_IMF_KEYBOARD_MODIFIER_SHIFT;
-  }
-  if (ecore_modifiers & ECORE_EVENT_MODIFIER_ALT) {
-    modifiers |= ECORE_IMF_KEYBOARD_MODIFIER_ALT;
-  }
-  if (ecore_modifiers & ECORE_EVENT_MODIFIER_CTRL) {
-    modifiers |= ECORE_IMF_KEYBOARD_MODIFIER_CTRL;
-  }
-  if (ecore_modifiers & ECORE_EVENT_MODIFIER_WIN) {
-    modifiers |= ECORE_IMF_KEYBOARD_MODIFIER_WIN;
-  }
-  if (ecore_modifiers & ECORE_EVENT_MODIFIER_ALTGR) {
-    modifiers |= ECORE_IMF_KEYBOARD_MODIFIER_ALTGR;
-  }
-  return static_cast<Ecore_IMF_Keyboard_Modifiers>(modifiers);
-}
-
-Ecore_IMF_Keyboard_Locks EcoreInputModifiersToEcoreImfLocks(
-    unsigned int modifiers) {
-  // If no other matches, returns NONE.
-  unsigned int locks(ECORE_IMF_KEYBOARD_LOCK_NONE);
-  if (modifiers & ECORE_EVENT_LOCK_NUM) {
-    locks |= ECORE_IMF_KEYBOARD_LOCK_NUM;
-  }
-  if (modifiers & ECORE_EVENT_LOCK_CAPS) {
-    locks |= ECORE_IMF_KEYBOARD_LOCK_CAPS;
-  }
-  if (modifiers & ECORE_EVENT_LOCK_SCROLL) {
-    locks |= ECORE_IMF_KEYBOARD_LOCK_SCROLL;
-  }
-  return static_cast<Ecore_IMF_Keyboard_Locks>(locks);
-}
-
-template <typename T>
-T EcoreEventKeyToEcoreImfEvent(Ecore_Event_Key* event) {
-  T imf_event;
-
-  imf_event.keyname = event->keyname;
-  imf_event.key = event->key;
-  imf_event.string = event->string;
-  imf_event.compose = event->compose;
-  imf_event.timestamp = event->timestamp;
-  imf_event.keycode = event->keycode;
-
-  imf_event.modifiers =
-      EcoreInputModifiersToEcoreImfModifiers(event->modifiers);
-  imf_event.locks = EcoreInputModifiersToEcoreImfLocks(event->modifiers);
-
-  if (event->dev) {
-    const char* device_name = ecore_device_name_get(event->dev);
-    imf_event.dev_name = device_name ? device_name : "";
-    imf_event.dev_class =
-        static_cast<Ecore_IMF_Device_Class>(ecore_device_class_get(event->dev));
-    imf_event.dev_subclass = static_cast<Ecore_IMF_Device_Subclass>(
-        ecore_device_subclass_get(event->dev));
-  } else {
-    imf_event.dev_name = "";
-    imf_event.dev_class = ECORE_IMF_DEVICE_CLASS_NONE;
-    imf_event.dev_subclass = ECORE_IMF_DEVICE_SUBCLASS_NONE;
-  }
-
-  return imf_event;
-}
+// [TEMP_DIAG_REMOVE] No-op handlers to avoid compositor aborts when
+// wl_text_input emits optional events that were previously bound to nullptr.
+void NoopModifiersMap(void*, wl_text_input*, wl_array*) {}
+void NoopPreeditStyling(void*, wl_text_input*, uint32_t, uint32_t, uint32_t) {}
+void NoopCursorPosition(void*, wl_text_input*, int32_t, int32_t) {}
+void NoopDeleteSurroundingText(void*, wl_text_input*, int32_t, uint32_t) {}
+void NoopKeysym(void*, wl_text_input*, uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t) {}
+void NoopLanguage(void*, wl_text_input*, uint32_t, const char*) {}
+void NoopTextDirection(void*, wl_text_input*, uint32_t, uint32_t) {}
+void NoopSelectionRegion(void*, wl_text_input*, uint32_t, int32_t, int32_t) {}
+void NoopPrivateCommand(void*, wl_text_input*, uint32_t, const char*) {}
+void NoopInputPanelData(void*, wl_text_input*, uint32_t, const char*, uint32_t) {}
+void NoopGetSelectionText(void*, wl_text_input*, int32_t) {}
+void NoopGetSurroundingText(void*, wl_text_input*, uint32_t, uint32_t, int32_t) {}
+void NoopHidePermission(void*, wl_text_input*, uint32_t) {}
+// commit_content is handled by TizenInputMethodContext::CommitContentCallback.
 
 }  // namespace
 
 namespace flutter {
 
-TizenInputMethodContext::TizenInputMethodContext(uintptr_t window_id) {
-  ecore_imf_init();
-
-  const char* imf_id = ecore_imf_context_default_id_get();
-  if (imf_id == nullptr) {
-    // Try to get a fallback ID.
-    imf_id = GetEcoreImfContextAvailableId();
-  }
-  if (imf_id == nullptr) {
-    FT_LOG(Error) << "Failed to get an IMF context ID.";
-    return;
-  }
-
-  imf_context_ = ecore_imf_context_add(imf_id);
-  if (imf_context_ == nullptr) {
-    FT_LOG(Error) << "Failed to create Ecore_IMF_Context.";
-    return;
-  }
-
-  ecore_imf_context_client_window_set(imf_context_,
-                                      reinterpret_cast<void*>(window_id));
-  SetContextOptions();
-  SetInputPanelOptions();
-  RegisterEventCallbacks();
-  RegisterInputPanelEventCallback();
+TizenInputMethodContext::TizenInputMethodContext(
+    uintptr_t window_id,
+    wl_display* display,
+    wl_seat* seat,
+    wl_surface* surface,
+    wl_text_input_manager* text_input_manager)
+    : display_(display),
+      seat_(seat),
+      surface_(surface) {
+  InitializeTextInput(text_input_manager);
 }
 
 TizenInputMethodContext::~TizenInputMethodContext() {
   UnregisterInputPanelEventCallback();
-  UnregisterEventCallbacks();
 
-#ifdef NUI_SUPPORT
-  if (ecore_device_) {
-    ecore_device_del(ecore_device_);
-  }
-#endif
-
-  if (imf_context_) {
-    ecore_imf_context_del(imf_context_);
-  }
-
-  ecore_imf_shutdown();
-}
-
-bool TizenInputMethodContext::HandleEcoreEventKey(Ecore_Event_Key* event,
-                                                  bool is_down) {
-  FT_ASSERT(imf_context_);
-  FT_ASSERT(event);
-
-  Ecore_IMF_Event imf_event;
-  if (is_down) {
-    imf_event.key_down =
-        EcoreEventKeyToEcoreImfEvent<Ecore_IMF_Event_Key_Down>(event);
-    return ecore_imf_context_filter_event(imf_context_,
-                                          ECORE_IMF_EVENT_KEY_DOWN, &imf_event);
-  } else {
-    imf_event.key_up =
-        EcoreEventKeyToEcoreImfEvent<Ecore_IMF_Event_Key_Up>(event);
-    return ecore_imf_context_filter_event(imf_context_, ECORE_IMF_EVENT_KEY_UP,
-                                          &imf_event);
+  if (text_input_) {
+    wl_text_input_destroy(text_input_);
+    text_input_ = nullptr;
   }
 }
 
-#ifdef NUI_SUPPORT
-bool TizenInputMethodContext::HandleNuiKeyEvent(const char* device_name,
-                                                uint32_t device_class,
-                                                uint32_t device_subclass,
-                                                const char* key,
-                                                const char* string,
-                                                uint32_t modifiers,
-                                                uint32_t scan_code,
-                                                size_t timestamp,
-                                                bool is_down) {
-  Ecore_Event_Key event;
-  event.keyname = event.key = key ? key : "";
-  event.string = string ? string : "";
-  event.modifiers = modifiers;
-  event.keycode = scan_code;
-  event.timestamp = timestamp;
-  if (device_name) {
-    if (!ecore_device_) {
-      ecore_device_ = ecore_device_add();
-    }
-
-    event.dev = ecore_device_;
-    ecore_device_name_set(event.dev, device_name);
-    ecore_device_class_set(event.dev,
-                           static_cast<Ecore_IMF_Device_Class>(device_class));
-    ecore_device_subclass_set(
-        event.dev, static_cast<Ecore_IMF_Device_Subclass>(device_subclass));
+bool TizenInputMethodContext::HandleKeyEvent(const char* device_name,
+                                             uint32_t device_class,
+                                             uint32_t device_subclass,
+                                             const char* key,
+                                             const char* string,
+                                             uint32_t modifiers,
+                                             uint32_t scan_code,
+                                             size_t timestamp,
+                                             bool is_down) {
+  if (!text_input_ || !input_panel_shown_) {
+    return false;
   }
 
-  Ecore_IMF_Event imf_event;
-  if (is_down) {
-    imf_event.key_down =
-        EcoreEventKeyToEcoreImfEvent<Ecore_IMF_Event_Key_Down>(&event);
-    return ecore_imf_context_filter_event(imf_context_,
-                                          ECORE_IMF_EVENT_KEY_DOWN, &imf_event);
-  } else {
-    imf_event.key_up =
-        EcoreEventKeyToEcoreImfEvent<Ecore_IMF_Event_Key_Up>(&event);
-    return ecore_imf_context_filter_event(imf_context_, ECORE_IMF_EVENT_KEY_UP,
-                                          &imf_event);
-  }
+  pending_filter_result_ = false;
+  pending_filter_serial_ = ++serial_;
+
+  // [TEMP_DIAG_REMOVE] Some compositor/IME stacks crash or deadlock when
+  // filter_key_event is used in the direct-wayland path. Keep the app stable
+  // by bypassing IME key filtering and allowing key events to flow normally.
+  pending_filter_serial_ = 0;
+  pending_filter_result_ = false;
+  return false;
 }
-#endif
 
 InputPanelGeometry TizenInputMethodContext::GetInputPanelGeometry() {
-  FT_ASSERT(imf_context_);
-  InputPanelGeometry geometry;
-  ecore_imf_context_input_panel_geometry_get(
-      imf_context_, &geometry.x, &geometry.y, &geometry.w, &geometry.h);
-  return geometry;
+  return input_panel_geometry_;
 }
 
 void TizenInputMethodContext::ResetInputMethodContext() {
-  FT_ASSERT(imf_context_);
-  ecore_imf_context_reset(imf_context_);
+  if (!text_input_) {
+    return;
+  }
+  wl_text_input_reset(text_input_);
+  CommitState();
 }
 
 void TizenInputMethodContext::ShowInputPanel() {
-  FT_ASSERT(imf_context_);
-  ecore_imf_context_input_panel_show(imf_context_);
-  ecore_imf_context_focus_in(imf_context_);
+  if (!text_input_) {
+    input_panel_shown_ = true;
+    NotifyInputPanelState("show");
+    return;
+  }
+
+  if (seat_ && surface_) {
+    wl_text_input_activate(text_input_, seat_, surface_);
+  }
+  wl_text_input_show_input_panel(text_input_);
+  wl_text_input_input_panel_enabled(text_input_, 1);
+  CommitState();
 }
 
 void TizenInputMethodContext::HideInputPanel() {
-  FT_ASSERT(imf_context_);
-  ecore_imf_context_focus_out(imf_context_);
-  ecore_imf_context_input_panel_hide(imf_context_);
+  if (!text_input_) {
+    input_panel_shown_ = false;
+    NotifyInputPanelState("hide");
+    return;
+  }
+
+  wl_text_input_hide_input_panel(text_input_);
+  if (seat_) {
+    wl_text_input_deactivate(text_input_, seat_);
+  }
+  CommitState();
 }
 
 bool TizenInputMethodContext::IsInputPanelShown() {
-  Ecore_IMF_Input_Panel_State state =
-      ecore_imf_context_input_panel_state_get(imf_context_);
-  return state == ECORE_IMF_INPUT_PANEL_STATE_SHOW;
+  return input_panel_shown_;
 }
 
-void TizenInputMethodContext::SetInputPanelLayout(
-    const std::string& input_type) {
-  FT_ASSERT(imf_context_);
-  Ecore_IMF_Input_Panel_Layout panel_layout =
-      TextInputTypeToEcoreImfInputPanelLayout(input_type);
-  ecore_imf_context_input_panel_layout_set(imf_context_, panel_layout);
+void TizenInputMethodContext::SetInputPanelLayout(const std::string& input_type) {
+  input_type_ = input_type;
+  ApplyContentType();
 }
 
 void TizenInputMethodContext::SetInputPanelLayoutVariation(bool is_signed,
                                                            bool is_decimal) {
-  Ecore_IMF_Input_Panel_Layout_Numberonly_Variation variation;
-  if (is_signed && is_decimal) {
-    variation =
-        ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY_VARIATION_SIGNED_AND_DECIMAL;
-  } else if (is_signed) {
-    variation = ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY_VARIATION_SIGNED;
-  } else if (is_decimal) {
-    variation = ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY_VARIATION_DECIMAL;
-  } else {
-    variation = ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY_VARIATION_NORMAL;
-  }
-  ecore_imf_context_input_panel_layout_variation_set(imf_context_, variation);
+  number_signed_ = is_signed;
+  number_decimal_ = is_decimal;
+  ApplyContentType();
 }
 
 void TizenInputMethodContext::SetAutocapitalType(const std::string& type) {
-  Ecore_IMF_Autocapital_Type autocapital_type = ECORE_IMF_AUTOCAPITAL_TYPE_NONE;
+  text_capitalization_ = type;
+
+  if (!text_input_) {
+    return;
+  }
 
   if (type == "TextCapitalization.characters") {
-    autocapital_type = ECORE_IMF_AUTOCAPITAL_TYPE_ALLCHARACTER;
-  } else if (type == "TextCapitalization.words") {
-    autocapital_type = ECORE_IMF_AUTOCAPITAL_TYPE_WORD;
-  } else if (type == "TextCapitalization.sentences") {
-    autocapital_type = ECORE_IMF_AUTOCAPITAL_TYPE_SENTENCE;
-  } else if (type == "TextCapitalization.none") {
-    autocapital_type = ECORE_IMF_AUTOCAPITAL_TYPE_NONE;
+    wl_text_input_set_capital_mode(text_input_,
+                                   WL_TEXT_INPUT_CAPITAL_MODE_UPPERCASE);
+  } else {
+    wl_text_input_set_capital_mode(text_input_,
+                                   WL_TEXT_INPUT_CAPITAL_MODE_LOWERCASE);
   }
-  ecore_imf_context_autocapital_type_set(imf_context_, autocapital_type);
-}
-
-void TizenInputMethodContext::RegisterEventCallbacks() {
-  FT_ASSERT(imf_context_);
-
-  // commit callback
-  event_callbacks_[ECORE_IMF_CALLBACK_COMMIT] =
-      [](void* data, Ecore_IMF_Context* ctx, void* event_info) {
-        auto* self = static_cast<TizenInputMethodContext*>(data);
-        char* str = static_cast<char*>(event_info);
-        if (self->on_commit_) {
-          self->on_commit_(str);
-        }
-      };
-  ecore_imf_context_event_callback_add(
-      imf_context_, ECORE_IMF_CALLBACK_COMMIT,
-      event_callbacks_[ECORE_IMF_CALLBACK_COMMIT], this);
-
-  // pre-edit start callback
-  event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_START] =
-      [](void* data, Ecore_IMF_Context* ctx, void* event_info) {
-        auto* self = static_cast<TizenInputMethodContext*>(data);
-        if (self->on_preedit_start_) {
-          self->on_preedit_start_();
-        }
-      };
-  ecore_imf_context_event_callback_add(
-      imf_context_, ECORE_IMF_CALLBACK_PREEDIT_START,
-      event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_START], this);
-
-  // pre-edit end callback
-  event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_END] =
-      [](void* data, Ecore_IMF_Context* ctx, void* event_info) {
-        auto* self = static_cast<TizenInputMethodContext*>(data);
-        if (self->on_preedit_end_) {
-          self->on_preedit_end_();
-        }
-      };
-  ecore_imf_context_event_callback_add(
-      imf_context_, ECORE_IMF_CALLBACK_PREEDIT_END,
-      event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_END], this);
-
-  // pre-edit changed callback
-  event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_CHANGED] =
-      [](void* data, Ecore_IMF_Context* ctx, void* event_info) {
-        auto* self = static_cast<TizenInputMethodContext*>(data);
-        if (self->on_preedit_changed_) {
-          char* str = nullptr;
-          int cursor_pos = 0;
-          ecore_imf_context_preedit_string_get(ctx, &str, &cursor_pos);
-          if (str) {
-            self->on_preedit_changed_(str, cursor_pos);
-            free(str);
-          }
-        }
-      };
-  ecore_imf_context_event_callback_add(
-      imf_context_, ECORE_IMF_CALLBACK_PREEDIT_CHANGED,
-      event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_CHANGED], this);
-}
-
-void TizenInputMethodContext::UnregisterEventCallbacks() {
-  FT_ASSERT(imf_context_);
-  ecore_imf_context_event_callback_del(
-      imf_context_, ECORE_IMF_CALLBACK_COMMIT,
-      event_callbacks_[ECORE_IMF_CALLBACK_COMMIT]);
-  ecore_imf_context_event_callback_del(
-      imf_context_, ECORE_IMF_CALLBACK_PREEDIT_CHANGED,
-      event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_CHANGED]);
-  ecore_imf_context_event_callback_del(
-      imf_context_, ECORE_IMF_CALLBACK_PREEDIT_START,
-      event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_START]);
-  ecore_imf_context_event_callback_del(
-      imf_context_, ECORE_IMF_CALLBACK_PREEDIT_END,
-      event_callbacks_[ECORE_IMF_CALLBACK_PREEDIT_END]);
-}
-
-void TizenInputMethodContext::SetContextOptions() {
-  FT_ASSERT(imf_context_);
-  ecore_imf_context_autocapital_type_set(imf_context_,
-                                         ECORE_IMF_AUTOCAPITAL_TYPE_NONE);
-  ecore_imf_context_prediction_allow_set(imf_context_, EINA_FALSE);
-}
-
-void TizenInputMethodContext::SetInputPanelOptions() {
-  FT_ASSERT(imf_context_);
-  ecore_imf_context_input_panel_layout_set(imf_context_,
-                                           ECORE_IMF_INPUT_PANEL_LAYOUT_NORMAL);
-  ecore_imf_context_input_panel_return_key_type_set(
-      imf_context_, ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_DEFAULT);
-  ecore_imf_context_input_panel_language_set(
-      imf_context_, ECORE_IMF_INPUT_PANEL_LANG_AUTOMATIC);
-}
-
-void TizenInputMethodContext::InputPanelStateChangedCallback(
-    void* data,
-    Ecore_IMF_Context* ctx,
-    int value) {
-  auto* self = static_cast<TizenInputMethodContext*>(data);
-  Ecore_IMF_Input_Panel_State state =
-      static_cast<Ecore_IMF_Input_Panel_State>(value);
-
-  std::string state_str;
-  switch (state) {
-    case ECORE_IMF_INPUT_PANEL_STATE_SHOW:
-      state_str = "show";
-      break;
-    case ECORE_IMF_INPUT_PANEL_STATE_HIDE:
-      state_str = "hide";
-      break;
-    case ECORE_IMF_INPUT_PANEL_STATE_WILL_SHOW:
-      state_str = "will_show";
-      break;
-    default:
-      state_str = "unknown";
-      break;
-  }
-
-  if (self->on_input_panel_state_changed_) {
-    self->on_input_panel_state_changed_(state_str);
-  }
+  CommitState();
 }
 
 void TizenInputMethodContext::RegisterInputPanelEventCallback() {
-  FT_ASSERT(imf_context_);
-
-  ecore_imf_context_input_panel_event_callback_add(
-      imf_context_, ECORE_IMF_INPUT_PANEL_STATE_EVENT,
-      InputPanelStateChangedCallback, this);
+  // Input panel events are always registered through wl_text_input_listener.
 }
 
 void TizenInputMethodContext::UnregisterInputPanelEventCallback() {
-  FT_ASSERT(imf_context_);
+  // Input panel events are always registered through wl_text_input_listener.
+}
 
-  ecore_imf_context_input_panel_event_callback_del(
-      imf_context_, ECORE_IMF_INPUT_PANEL_STATE_EVENT,
-      InputPanelStateChangedCallback);
+void TizenInputMethodContext::InitializeTextInput(
+    wl_text_input_manager* text_input_manager) {
+  if (!display_ || !seat_ || !surface_ || !text_input_manager) {
+    FT_LOG(Info)
+        << "wl_text_input is unavailable. Falling back to local text state.";
+    return;
+  }
+
+  text_input_ = wl_text_input_manager_create_text_input(text_input_manager);
+  if (!text_input_) {
+    FT_LOG(Error) << "Failed to create wl_text_input.";
+    return;
+  }
+
+  RegisterTextInputListener();
+  SetAutocapitalType(text_capitalization_);
+  ApplyContentType();
+}
+
+void TizenInputMethodContext::RegisterTextInputListener() {
+  if (!text_input_) {
+    return;
+  }
+
+  static const wl_text_input_listener kTextInputListener = {
+      EnterCallback,
+      LeaveCallback,
+      NoopModifiersMap,
+      InputPanelStateCallback,
+      PreeditStringCallback,
+      NoopPreeditStyling,
+      PreeditCursorCallback,
+      CommitStringCallback,
+      NoopCursorPosition,
+      NoopDeleteSurroundingText,
+      NoopKeysym,
+      NoopLanguage,
+      NoopTextDirection,
+      NoopSelectionRegion,
+      NoopPrivateCommand,
+      InputPanelGeometryCallback,
+      NoopInputPanelData,
+      NoopGetSelectionText,
+      NoopGetSurroundingText,
+      FilterKeyEventDoneCallback,
+      NoopHidePermission,
+      RecaptureStringCallback,
+      InputPanelEventCallback,
+      CommitContentCallback,
+  };
+
+  wl_text_input_add_listener(text_input_, &kTextInputListener, this);
+}
+
+void TizenInputMethodContext::CommitState() {
+  if (!text_input_) {
+    return;
+  }
+
+  wl_text_input_commit_state(text_input_, ++serial_);
+  if (display_) {
+    wl_display_flush(display_);
+  }
+}
+
+void TizenInputMethodContext::NotifyInputPanelState(const std::string& state) {
+  if (on_input_panel_state_changed_) {
+    on_input_panel_state_changed_(state);
+  }
+}
+
+void TizenInputMethodContext::ApplyContentType() {
+  if (!text_input_) {
+    return;
+  }
+
+  uint32_t purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_NORMAL;
+  uint32_t hint = WL_TEXT_INPUT_CONTENT_HINT_DEFAULT;
+
+  if (input_type_ == "TextInputType.multiline") {
+    purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_NORMAL;
+    hint |= WL_TEXT_INPUT_CONTENT_HINT_MULTILINE;
+  } else if (input_type_ == "TextInputType.number") {
+    if (number_signed_ && number_decimal_) {
+      purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_DIGITS_SIGNEDDECIMAL;
+    } else if (number_signed_) {
+      purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_DIGITS_SIGNED;
+    } else if (number_decimal_) {
+      purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_DIGITS_DECIMAL;
+    } else {
+      purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_DIGITS;
+    }
+  } else if (input_type_ == "TextInputType.phone") {
+    purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_PHONE;
+  } else if (input_type_ == "TextInputType.datetime") {
+    purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_DATETIME;
+  } else if (input_type_ == "TextInputType.emailAddress" ||
+             input_type_ == "TextInputType.twitter") {
+    purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_EMAIL;
+  } else if (input_type_ == "TextInputType.url" ||
+             input_type_ == "TextInputType.webSearch") {
+    purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_URL;
+  } else if (input_type_ == "TextInputType.visiblePassword") {
+    purpose = WL_TEXT_INPUT_CONTENT_PURPOSE_PASSWORD;
+    hint = WL_TEXT_INPUT_CONTENT_HINT_PASSWORD;
+  }
+
+  wl_text_input_set_content_type(text_input_, hint, purpose);
+  CommitState();
+}
+
+void TizenInputMethodContext::EnterCallback(void* data,
+                                            wl_text_input* text_input,
+                                            wl_surface* surface) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+  self->input_panel_shown_ = true;
+}
+
+void TizenInputMethodContext::LeaveCallback(void* data,
+                                            wl_text_input* text_input) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  self->input_panel_shown_ = false;
+  if (self->preediting_) {
+    self->preediting_ = false;
+    if (self->on_preedit_end_) {
+      self->on_preedit_end_();
+    }
+  }
+}
+
+void TizenInputMethodContext::InputPanelStateCallback(void* data,
+                                                      wl_text_input* text_input,
+                                                      uint32_t state) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  switch (state) {
+    case WL_TEXT_INPUT_INPUT_PANEL_STATE_SHOW:
+      self->input_panel_shown_ = true;
+      self->NotifyInputPanelState("show");
+      break;
+    case WL_TEXT_INPUT_INPUT_PANEL_STATE_HIDE:
+    default:
+      self->input_panel_shown_ = false;
+      self->NotifyInputPanelState("hide");
+      break;
+  }
+}
+
+void TizenInputMethodContext::PreeditStringCallback(void* data,
+                                                    wl_text_input* text_input,
+                                                    uint32_t serial,
+                                                    const char* text,
+                                                    const char* commit) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (!self->preediting_) {
+    self->preediting_ = true;
+    if (self->on_preedit_start_) {
+      self->on_preedit_start_();
+    }
+  }
+
+  if (self->on_preedit_changed_) {
+    self->on_preedit_changed_(text ? text : "", self->preedit_cursor_pos_);
+  }
+}
+
+void TizenInputMethodContext::PreeditCursorCallback(void* data,
+                                                    wl_text_input* text_input,
+                                                    int32_t index) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+  self->preedit_cursor_pos_ = index;
+}
+
+void TizenInputMethodContext::CommitStringCallback(void* data,
+                                                   wl_text_input* text_input,
+                                                   uint32_t serial,
+                                                   const char* text) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (self->preediting_) {
+    self->preediting_ = false;
+    if (self->on_preedit_end_) {
+      self->on_preedit_end_();
+    }
+  }
+
+  if (self->on_commit_) {
+    self->on_commit_(text ? text : "");
+  }
+}
+
+void TizenInputMethodContext::InputPanelGeometryCallback(
+    void* data,
+    wl_text_input* text_input,
+    uint32_t x,
+    uint32_t y,
+    uint32_t width,
+    uint32_t height) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  self->input_panel_geometry_.x = x;
+  self->input_panel_geometry_.y = y;
+  self->input_panel_geometry_.w = width;
+  self->input_panel_geometry_.h = height;
+}
+
+void TizenInputMethodContext::FilterKeyEventDoneCallback(
+    void* data,
+    wl_text_input* text_input,
+    uint32_t serial,
+    uint32_t state) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (self->pending_filter_serial_ == serial) {
+    self->pending_filter_result_ = state != 0;
+    self->pending_filter_serial_ = 0;
+  }
+}
+
+void TizenInputMethodContext::InputPanelEventCallback(void* data,
+                                                      wl_text_input* text_input,
+                                                      uint32_t serial,
+                                                      uint32_t event_type,
+                                                      uint32_t value) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (event_type != kInputPanelEventTypeState) {
+    return;
+  }
+
+  switch (value) {
+    case WL_TEXT_INPUT_INPUT_PANEL_STATE_SHOW:
+      self->input_panel_shown_ = true;
+      self->NotifyInputPanelState("show");
+      break;
+    case WL_TEXT_INPUT_INPUT_PANEL_STATE_HIDE:
+      self->input_panel_shown_ = false;
+      self->NotifyInputPanelState("hide");
+      break;
+    default:
+      self->NotifyInputPanelState("unknown");
+      break;
+  }
+}
+
+void TizenInputMethodContext::RecaptureStringCallback(
+    void* data,
+    wl_text_input* text_input,
+    uint32_t serial,
+    int32_t index,
+    uint32_t length,
+    const char* preedit,
+    const char* preedit_commit,
+    const char* commit) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (self->preediting_) {
+    self->preediting_ = false;
+    if (self->on_preedit_end_) {
+      self->on_preedit_end_();
+    }
+  }
+
+  if (self->on_commit_ && commit && commit[0] != '\0') {
+    self->on_commit_(commit);
+    return;
+  }
+
+  if (self->on_commit_ && preedit_commit && preedit_commit[0] != '\0') {
+    self->on_commit_(preedit_commit);
+  }
+}
+
+void TizenInputMethodContext::CommitContentCallback(
+    void* data,
+    wl_text_input* text_input,
+    uint32_t serial,
+    const char* content,
+    const char* description,
+    const char* mime_types) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (self->on_commit_ && content && content[0] != '\0') {
+    self->on_commit_(content);
+  }
 }
 
 }  // namespace flutter

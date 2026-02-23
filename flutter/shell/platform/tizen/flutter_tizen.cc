@@ -20,7 +20,7 @@
 #include "flutter/shell/platform/tizen/tizen_view_nui.h"
 #endif
 #include "flutter/shell/platform/tizen/tizen_window.h"
-#include "flutter/shell/platform/tizen/tizen_window_ecore_wl2.h"
+#include "flutter/shell/platform/tizen/tizen_window_wayland.h"
 
 namespace {
 

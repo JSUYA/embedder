@@ -5,6 +5,9 @@
 
 #include "tizen_event_loop.h"
 
+#include <algorithm>
+#include <glib.h>
+
 #include <utility>
 
 namespace flutter {
@@ -14,19 +17,10 @@ TizenEventLoop::TizenEventLoop(std::thread::id main_thread_id,
                                TaskExpiredCallback on_task_expired)
     : main_thread_id_(main_thread_id),
       get_current_time_(get_current_time),
-      on_task_expired_(std::move(on_task_expired)) {
-  ecore_pipe_ = ecore_pipe_add(
-      [](void* data, void* buffer, unsigned int nbyte) -> void {
-        auto* self = static_cast<TizenEventLoop*>(data);
-        self->ExecuteTaskEvents();
-      },
-      this);
-}
+      on_task_expired_(std::move(on_task_expired)) {}
 
 TizenEventLoop::~TizenEventLoop() {
-  if (ecore_pipe_) {
-    ecore_pipe_del(ecore_pipe_);
-  }
+  is_running_ = false;
 }
 
 bool TizenEventLoop::RunsTasksOnCurrentThread() const {
@@ -74,20 +68,28 @@ void TizenEventLoop::PostTask(FlutterTask flutter_task,
   const double flutter_duration =
       static_cast<double>(flutter_target_time_nanos) - get_current_time_();
   if (flutter_duration > 0) {
-    ecore_timer_add(
-        flutter_duration / 1000000000.0,
-        [](void* data) -> Eina_Bool {
+    const guint timeout_msec = static_cast<guint>(
+        std::max(1.0, flutter_duration / 1000000.0 /* nanos -> millis */));
+    g_timeout_add_full(
+        G_PRIORITY_DEFAULT, timeout_msec,
+        [](gpointer data) -> gboolean {
           auto* self = static_cast<TizenEventLoop*>(data);
-          if (self->ecore_pipe_) {
-            ecore_pipe_write(self->ecore_pipe_, nullptr, 0);
+          if (self->is_running_) {
+            self->ExecuteTaskEvents();
           }
-          return ECORE_CALLBACK_CANCEL;
+          return G_SOURCE_REMOVE;
         },
-        this);
+        this, nullptr);
   } else {
-    if (ecore_pipe_) {
-      ecore_pipe_write(ecore_pipe_, nullptr, 0);
-    }
+    g_main_context_invoke(nullptr,  // default context
+                          [](gpointer data) -> gboolean {
+                            auto* self = static_cast<TizenEventLoop*>(data);
+                            if (self->is_running_) {
+                              self->ExecuteTaskEvents();
+                            }
+                            return G_SOURCE_REMOVE;
+                          },
+                          this);
   }
 }
 

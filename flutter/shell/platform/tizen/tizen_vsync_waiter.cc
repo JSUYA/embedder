@@ -9,26 +9,18 @@
 namespace flutter {
 
 TizenVsyncWaiter::TizenVsyncWaiter(FlutterTizenEngine* engine)
-    : tdm_client_(std::make_shared<TdmClient>(engine)),
-      message_loop_(std::make_unique<MessageLoop>()) {}
+    : tdm_client_(std::make_shared<TdmClient>(engine)) {}
 
 TizenVsyncWaiter::~TizenVsyncWaiter() {
   tdm_client_->OnEngineStop();
 }
 
 void TizenVsyncWaiter::AsyncWaitForVsync(intptr_t baton) {
-  std::weak_ptr<TdmClient> tdm_client = tdm_client_;
-  message_loop_->PostTask([tdm_client_weak = std::move(tdm_client), baton]() {
-    if (auto tdm_client = tdm_client_weak.lock()) {
-      if (tdm_client->IsValid()) {
-        tdm_client->AwaitVblank(baton);
-      } else {
-        FT_LOG(Error) << "tdm client is invalid, task cancelled";
-      }
-    } else {
-      FT_LOG(Error) << "tdm client is null, task cancelled";
-    }
-  });
+  if (tdm_client_->IsValid()) {
+    tdm_client_->AwaitVblank(baton);
+  } else {
+    FT_LOG(Error) << "tdm client is invalid, vsync cancelled";
+  }
 }
 
 TdmClient::TdmClient(FlutterTizenEngine* engine) {
