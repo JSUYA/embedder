@@ -132,6 +132,12 @@ class TizenInputMethodContext {
                                       uint32_t serial,
                                       uint32_t event_type,
                                       uint32_t value);
+  static void CommitContentCallback(void* data,
+                                    wl_text_input* text_input,
+                                    uint32_t serial,
+                                    const char* content,
+                                    const char* description,
+                                    const char* mime_types);
 
   void InitializeTextInput(wl_text_input_manager* text_input_manager);
   void RegisterTextInputListener();

@@ -33,8 +33,7 @@ void NoopGetSurroundingText(void*, wl_text_input*, uint32_t, uint32_t, int32_t) 
 void NoopHidePermission(void*, wl_text_input*, uint32_t) {}
 void NoopRecaptureString(void*, wl_text_input*, uint32_t, int32_t, uint32_t,
                          const char*, const char*, const char*) {}
-void NoopCommitContent(void*, wl_text_input*, uint32_t, const char*,
-                       const char*, const char*) {}
+// commit_content is handled by TizenInputMethodContext::CommitContentCallback.
 
 }  // namespace
 
@@ -215,7 +214,7 @@ void TizenInputMethodContext::RegisterTextInputListener() {
       NoopHidePermission,
       NoopRecaptureString,
       InputPanelEventCallback,
-      NoopCommitContent,
+      CommitContentCallback,
   };
 
   wl_text_input_add_listener(text_input_, &kTextInputListener, this);
@@ -361,8 +360,6 @@ void TizenInputMethodContext::CommitStringCallback(void* data,
                                                    wl_text_input* text_input,
                                                    uint32_t serial,
                                                    const char* text) {
-  FT_LOG(Error) << "[TEMP_DIAG_REMOVE][IME] CommitString serial=" << serial
-                << " text=" << (text ? text : "<null>");
   auto* self = static_cast<TizenInputMethodContext*>(data);
   if (!self) {
     return;
@@ -440,6 +437,23 @@ void TizenInputMethodContext::InputPanelEventCallback(void* data,
     default:
       self->NotifyInputPanelState("unknown");
       break;
+  }
+}
+
+void TizenInputMethodContext::CommitContentCallback(
+    void* data,
+    wl_text_input* text_input,
+    uint32_t serial,
+    const char* content,
+    const char* description,
+    const char* mime_types) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (self->on_commit_ && content) {
+    self->on_commit_(content);
   }
 }
 
