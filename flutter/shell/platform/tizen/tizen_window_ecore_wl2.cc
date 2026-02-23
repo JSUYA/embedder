@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -1143,7 +1144,24 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  if (self->view_delegate_) {
+  // Coalesce high-frequency motion events to reduce unnecessary frame churn
+  // on low-power targets while preserving interaction fidelity.
+  constexpr uint32_t kPointerMoveMinIntervalMs = 8;
+  constexpr double kPointerMoveMinDelta = 0.25;
+  const bool time_ready =
+      (self->last_pointer_sent_time_ == 0) ||
+      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
+  const bool moved_enough =
+      (self->last_pointer_sent_x_ < 0.0) ||
+      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
+           kPointerMoveMinDelta) ||
+      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
+           kPointerMoveMinDelta);
+
+  if (self->view_delegate_ && time_ready && moved_enough) {
+    self->last_pointer_sent_x_ = self->pointer_x_;
+    self->last_pointer_sent_y_ = self->pointer_y_;
+    self->last_pointer_sent_time_ = time;
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                         static_cast<size_t>(time),
                                         kFlutterPointerDeviceKindMouse, 0);
