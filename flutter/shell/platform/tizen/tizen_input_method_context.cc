@@ -31,8 +31,6 @@ void NoopInputPanelData(void*, wl_text_input*, uint32_t, const char*, uint32_t) 
 void NoopGetSelectionText(void*, wl_text_input*, int32_t) {}
 void NoopGetSurroundingText(void*, wl_text_input*, uint32_t, uint32_t, int32_t) {}
 void NoopHidePermission(void*, wl_text_input*, uint32_t) {}
-void NoopRecaptureString(void*, wl_text_input*, uint32_t, int32_t, uint32_t,
-                         const char*, const char*, const char*) {}
 // commit_content is handled by TizenInputMethodContext::CommitContentCallback.
 
 }  // namespace
@@ -212,7 +210,7 @@ void TizenInputMethodContext::RegisterTextInputListener() {
       NoopGetSurroundingText,
       FilterKeyEventDoneCallback,
       NoopHidePermission,
-      NoopRecaptureString,
+      RecaptureStringCallback,
       InputPanelEventCallback,
       CommitContentCallback,
   };
@@ -440,6 +438,37 @@ void TizenInputMethodContext::InputPanelEventCallback(void* data,
   }
 }
 
+void TizenInputMethodContext::RecaptureStringCallback(
+    void* data,
+    wl_text_input* text_input,
+    uint32_t serial,
+    int32_t index,
+    uint32_t length,
+    const char* preedit,
+    const char* preedit_commit,
+    const char* commit) {
+  auto* self = static_cast<TizenInputMethodContext*>(data);
+  if (!self) {
+    return;
+  }
+
+  if (self->preediting_) {
+    self->preediting_ = false;
+    if (self->on_preedit_end_) {
+      self->on_preedit_end_();
+    }
+  }
+
+  if (self->on_commit_ && commit && commit[0] != '\0') {
+    self->on_commit_(commit);
+    return;
+  }
+
+  if (self->on_commit_ && preedit_commit && preedit_commit[0] != '\0') {
+    self->on_commit_(preedit_commit);
+  }
+}
+
 void TizenInputMethodContext::CommitContentCallback(
     void* data,
     wl_text_input* text_input,
@@ -452,7 +481,7 @@ void TizenInputMethodContext::CommitContentCallback(
     return;
   }
 
-  if (self->on_commit_ && content) {
+  if (self->on_commit_ && content && content[0] != '\0') {
     self->on_commit_(content);
   }
 }

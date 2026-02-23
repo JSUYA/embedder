@@ -132,6 +132,14 @@ class TizenInputMethodContext {
                                       uint32_t serial,
                                       uint32_t event_type,
                                       uint32_t value);
+  static void RecaptureStringCallback(void* data,
+                                      wl_text_input* text_input,
+                                      uint32_t serial,
+                                      int32_t index,
+                                      uint32_t length,
+                                      const char* preedit,
+                                      const char* preedit_commit,
+                                      const char* commit);
   static void CommitContentCallback(void* data,
                                     wl_text_input* text_input,
                                     uint32_t serial,
