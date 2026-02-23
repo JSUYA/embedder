@@ -358,6 +358,12 @@ void FlutterTizenEngine::SendWindowMetrics(int32_t x,
                                            int32_t width,
                                            int32_t height,
                                            double pixel_ratio) {
+  // Native callbacks can race with startup/teardown; avoid calling into the
+  // embedder with an invalid engine handle.
+  if (!engine_) {
+    return;
+  }
+
   FlutterWindowMetricsEvent event = {};
   event.struct_size = sizeof(FlutterWindowMetricsEvent);
   event.left = static_cast<size_t>(x);
