@@ -21,6 +21,7 @@
 
 #include <text-client-protocol.h>
 #include <wayland-client-protocol.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/tizen/logger.h"
@@ -72,6 +73,22 @@ FlutterPointerMouseButtons ToFlutterPointerButton(uint32_t button) {
     default:
       return kFlutterPointerButtonMousePrimary;
   }
+}
+
+xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
+  if (key == "XF86PlayBack") {
+    return XKB_KEY_XF86AudioPlay;
+  }
+  if (key == "XF86ChannelGuide") {
+    return XKB_KEY_XF86Guide;
+  }
+  if (key == "XF86Caption") {
+    return XKB_KEY_XF86Subtitle;
+  }
+  if (key == "XF86Exit") {
+    return XKB_KEY_XF86Close;
+  }
+  return XKB_KEY_NoSymbol;
 }
 
 size_t GetCurrentTimeMillis() {
@@ -152,11 +169,6 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
 
   if (!wl2_surface_) {
     FT_LOG(Error) << "Could not create Wayland surface.";
-    return false;
-  }
-
-  if (!xdg_wm_base_ && !window_handle) {
-    FT_LOG(Error) << "Missing required Wayland globals: xdg_wm_base.";
     return false;
   }
 
@@ -537,8 +549,11 @@ void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
   }
 
   for (const std::string& key : keys) {
-    uint32_t keycode =
-        static_cast<uint32_t>(xkb_keysym_from_name(key.c_str(), XKB_KEYSYM_NO_FLAGS));
+    uint32_t keycode = static_cast<uint32_t>(
+        xkb_keysym_from_name(key.c_str(), XKB_KEYSYM_NO_FLAGS));
+    if (keycode == XKB_KEY_NoSymbol) {
+      keycode = static_cast<uint32_t>(ResolveKeySymbolAlias(key));
+    }
     if (keycode == XKB_KEY_NoSymbol) {
       char* end = nullptr;
       unsigned long parsed = std::strtoul(key.c_str(), &end, 0);
