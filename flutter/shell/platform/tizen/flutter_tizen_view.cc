@@ -354,6 +354,14 @@ void FlutterTizenView::SendWindowMetrics(int32_t left,
     }
   }
 
+  static int metrics_log_count = 0;
+  if (metrics_log_count < 5) {
+    FT_LOG(Info) << "SendWindowMetrics: x=" << left << " y=" << top
+                 << " w=" << width << " h=" << height
+                 << " ratio=" << pixel_ratio;
+    metrics_log_count++;
+  }
+
   engine_->SendWindowMetrics(left, top, width, height, pixel_ratio);
 }
 

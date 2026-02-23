@@ -229,6 +229,8 @@ bool FlutterTizenEngine::RunEngine() {
     return false;
   }
 
+  FT_LOG(Info) << "Flutter engine started. handle=" << engine_;
+
   internal_plugin_registrar_ =
       std::make_unique<PluginRegistrar>(plugin_registrar_.get());
   accessibility_channel_ = std::make_unique<AccessibilityChannel>(

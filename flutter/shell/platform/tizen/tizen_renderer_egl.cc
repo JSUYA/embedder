@@ -125,6 +125,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
       FT_LOG(Error) << "Could not create an onscreen window surface.";
       return false;
     }
+
+    FT_LOG(Info) << "EGL onscreen surface created. render_target="
+                 << render_target << " display=" << render_target_display;
   }
 
   {
@@ -310,6 +313,12 @@ bool TizenRendererEgl::OnPresent() {
     PrintEGLError();
     FT_LOG(Error) << "Could not swap EGL buffers.";
     return false;
+  }
+
+  static int present_log_count = 0;
+  if (present_log_count < 5) {
+    FT_LOG(Info) << "EGL present success. count=" << (present_log_count + 1);
+    present_log_count++;
   }
   return true;
 }
