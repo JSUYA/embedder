@@ -1146,8 +1146,8 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
 
   // Coalesce high-frequency motion events to reduce unnecessary frame churn
   // on low-power targets while preserving interaction fidelity.
-  constexpr uint32_t kPointerMoveMinIntervalMs = 8;
-  constexpr double kPointerMoveMinDelta = 0.25;
+  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
+  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
   const bool time_ready =
       (self->last_pointer_sent_time_ == 0) ||
       (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
@@ -1191,10 +1191,12 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
 
   FlutterPointerMouseButtons flutter_button = ToFlutterPointerButton(button);
   if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    self->pointer_button_pressed_ = true;
     self->view_delegate_->OnPointerDown(
         self->pointer_x_, self->pointer_y_, flutter_button,
         static_cast<size_t>(time), kFlutterPointerDeviceKindMouse, 0);
   } else {
+    self->pointer_button_pressed_ = false;
     self->view_delegate_->OnPointerUp(self->pointer_x_, self->pointer_y_,
                                       flutter_button,
                                       static_cast<size_t>(time),
