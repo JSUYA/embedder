@@ -201,7 +201,13 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
     };
     xdg_wm_base_add_listener(xdg_wm_base_, &kWmBaseListener, this);
   } else {
-    FT_LOG(Info) << "xdg_wm_base not available; continuing with pre-created Wayland surface.";
+    FT_LOG(Info) << "xdg_wm_base not available; using compatibility path for pre-created window.";
+    if (window_handle) {
+      // In some hosts, window_handle is already an EGL-native window object.
+      // Keep it as a render target fallback when wl_egl_window creation is
+      // not possible or does not present frames.
+      external_egl_window_ = window_handle;
+    }
   }
 
   if (screen_geometry_.width <= 0 || screen_geometry_.height <= 0) {
@@ -219,13 +225,18 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   if (!is_vulkan_) {
     wl_egl_window_ =
         wl_egl_window_create(wl2_surface_, geometry_.width, geometry_.height);
-    if (!wl_egl_window_) {
+    if (!wl_egl_window_ && !external_egl_window_) {
       FT_LOG(Error) << "Could not create wl_egl_window.";
       return false;
     }
+    if (!wl_egl_window_ && external_egl_window_) {
+      FT_LOG(Info) << "Falling back to external EGL window handle.";
+    }
   }
 
-  wl_surface_commit(wl2_surface_);
+  if (xdg_wm_base_ || owns_surface_) {
+    wl_surface_commit(wl2_surface_);
+  }
   wl_display_flush(wl2_display_);
 
   int display_fd = wl_display_get_fd(wl2_display_);
@@ -577,7 +588,9 @@ void TizenWindowEcoreWl2::Show() {
     return;
   }
 
-  wl_surface_commit(wl2_surface_);
+  if (xdg_wm_base_ || owns_surface_) {
+    wl_surface_commit(wl2_surface_);
+  }
   wl_display_flush(wl2_display_);
 }
 
@@ -623,7 +636,10 @@ void* TizenWindowEcoreWl2::GetRenderTarget() {
   if (is_vulkan_) {
     return wl2_surface_;
   }
-  return wl_egl_window_;
+  if (wl_egl_window_) {
+    return wl_egl_window_;
+  }
+  return external_egl_window_;
 }
 
 void TizenWindowEcoreWl2::ActivateWindow() {

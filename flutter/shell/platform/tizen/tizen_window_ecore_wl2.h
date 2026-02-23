@@ -268,6 +268,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_compositor* compositor_ = nullptr;
   wl_surface* wl2_surface_ = nullptr;
   wl_egl_window* wl_egl_window_ = nullptr;
+  void* external_egl_window_ = nullptr;
 
   xdg_wm_base* xdg_wm_base_ = nullptr;
   xdg_surface* xdg_surface_ = nullptr;
