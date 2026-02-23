@@ -334,9 +334,25 @@ void TizenWindowEcoreWl2::SetWindowOptions() {
 }
 
 void TizenWindowEcoreWl2::EnableCursor() {
-#ifdef TV_PROFILE
-  FT_LOG(Info) << "EnableCursor via Ecore is no longer available.";
-#endif
+  if (!compositor_ || !wl2_display_) {
+    return;
+  }
+
+  if (!cursor_surface_) {
+    cursor_surface_ = wl_compositor_create_surface(compositor_);
+  }
+
+  if (!cursor_theme_) {
+    cursor_theme_ = wl_cursor_theme_load(nullptr, 24, nullptr);
+  }
+
+  if (cursor_theme_ && !default_cursor_) {
+    default_cursor_ = wl_cursor_theme_get_cursor(cursor_theme_, "left_ptr");
+  }
+
+  TEMP_DIAG_ECORE_WL2("EnableCursor surface=" << cursor_surface_
+                      << " theme=" << cursor_theme_
+                      << " cursor=" << default_cursor_);
 }
 
 #ifdef TV_PROFILE
@@ -396,6 +412,17 @@ void TizenWindowEcoreWl2::DestroyWindow() {
   if (seat_) {
     wl_seat_destroy(seat_);
     seat_ = nullptr;
+  }
+
+  if (cursor_surface_) {
+    wl_surface_destroy(cursor_surface_);
+    cursor_surface_ = nullptr;
+  }
+
+  if (cursor_theme_) {
+    wl_cursor_theme_destroy(cursor_theme_);
+    cursor_theme_ = nullptr;
+    default_cursor_ = nullptr;
   }
 
   if (output_) {
@@ -1054,6 +1081,17 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->last_input_serial_ = serial;
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
+
+  if (self->default_cursor_ && self->cursor_surface_) {
+    wl_cursor_image* image = self->default_cursor_->images[0];
+    wl_buffer* buffer = wl_cursor_image_get_buffer(image);
+    wl_pointer_set_cursor(pointer, serial, self->cursor_surface_, image->hotspot_x,
+                          image->hotspot_y);
+    wl_surface_attach(self->cursor_surface_, buffer, 0, 0);
+    wl_surface_damage(self->cursor_surface_, 0, 0, image->width, image->height);
+    wl_surface_commit(self->cursor_surface_);
+    wl_display_flush(self->wl2_display_);
+  }
 
   if (self->view_delegate_) {
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,

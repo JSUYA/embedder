@@ -56,23 +56,14 @@ bool TizenInputMethodContext::HandleKeyEvent(const char* device_name,
   const char* key_name = key ? key : "";
   pending_filter_result_ = false;
   pending_filter_serial_ = ++serial_;
-  wl_text_input_filter_key_event(
-      text_input_, pending_filter_serial_, static_cast<uint32_t>(timestamp),
-      key_name,
-      is_down ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED,
-      modifiers, device_name ? device_name : "", device_class, device_subclass,
-      scan_code);
-  CommitState();
 
-  // This can synchronously dispatch if a filter result is already queued,
-  // while remaining non-blocking for normal key-path latency.
-  if (display_) {
-    wl_display_dispatch_pending(display_);
-  }
-
-  if (pending_filter_serial_ == 0) {
-    return pending_filter_result_;
-  }
+  // [TEMP_DIAG_REMOVE] Some compositor/IME stacks crash or deadlock when
+  // filter_key_event is used in the direct-wayland path. Keep the app stable
+  // by bypassing IME key filtering and allowing key events to flow normally.
+  FT_LOG(Error) << "[TEMP_DIAG_REMOVE][IME] bypass filter_key_event key="
+                << key_name << " down=" << is_down;
+  pending_filter_serial_ = 0;
+  pending_filter_result_ = false;
   return false;
 }
 
@@ -352,6 +343,8 @@ void TizenInputMethodContext::CommitStringCallback(void* data,
                                                    wl_text_input* text_input,
                                                    uint32_t serial,
                                                    const char* text) {
+  FT_LOG(Error) << "[TEMP_DIAG_REMOVE][IME] CommitString serial=" << serial
+                << " text=" << (text ? text : "<null>");
   auto* self = static_cast<TizenInputMethodContext*>(data);
   if (!self) {
     return;

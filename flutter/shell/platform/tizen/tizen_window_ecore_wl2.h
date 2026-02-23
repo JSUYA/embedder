@@ -7,6 +7,7 @@
 
 #include <glib.h>
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 #include <wayland-egl.h>
 #include <xkbcommon/xkbcommon.h>
 
@@ -282,6 +283,9 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_touch* touch_ = nullptr;
   wl_output* output_ = nullptr;
   wl_data_device_manager* data_device_manager_ = nullptr;
+  wl_surface* cursor_surface_ = nullptr;
+  wl_cursor_theme* cursor_theme_ = nullptr;
+  wl_cursor* default_cursor_ = nullptr;
 
   tizen_policy* tizen_policy_ = nullptr;
   tizen_surface* tizen_surface_ = nullptr;
