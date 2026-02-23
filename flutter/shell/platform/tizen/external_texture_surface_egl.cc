@@ -11,6 +11,7 @@
 #include <tbm_bufmgr.h>
 #include <tbm_surface.h>
 #include <tbm_surface_internal.h>
+#include <unistd.h>
 #ifndef EGL_DMA_BUF_PLANE3_FD_EXT
 #define EGL_DMA_BUF_PLANE3_FD_EXT 0x3440
 #endif
@@ -114,21 +115,44 @@ bool ExternalTextureSurfaceEGL::PopulateGLTexture(
     if (num_planes > kTbmPlaneCountMax) {
       num_planes = kTbmPlaneCountMax;
     }
+    int plane_fds[kTbmPlaneCountMax] = {-1, -1, -1, -1};
+    bool has_invalid_plane = false;
     for (int i = 0; i < num_planes; i++) {
       int bo_idx = tbm_surface_internal_get_plane_bo_idx(tbm_surface, i);
       tbm_bo tbo = tbm_surface_internal_get_bo(tbm_surface, bo_idx);
+      if (!tbo) {
+        FT_LOG(Error) << "Invalid tbm_bo for texture ID: " << texture_id_;
+        has_invalid_plane = true;
+        break;
+      }
+
+      plane_fds[i] = tbm_bo_export_fd(tbo);
+      if (plane_fds[i] < 0) {
+        FT_LOG(Error) << "Failed to export dma-buf fd for texture ID: "
+                      << texture_id_;
+        has_invalid_plane = true;
+        break;
+      }
+
       attribs[atti++] = plane_fd_ext[i];
-      attribs[atti++] = static_cast<int>(
-          reinterpret_cast<size_t>(tbm_bo_get_handle(tbo, TBM_DEVICE_3D).ptr));
+      attribs[atti++] = plane_fds[i];
       attribs[atti++] = plane_offset_ext[i];
       attribs[atti++] = info.planes[i].offset;
       attribs[atti++] = plane_pitch_ext[i];
       attribs[atti++] = info.planes[i].stride;
     }
     attribs[atti++] = EGL_NONE;
-    egl_src_image =
-        n_eglCreateImageKHR(eglGetCurrentDisplay(), EGL_NO_CONTEXT,
-                            EGL_LINUX_DMA_BUF_EXT, nullptr, attribs);
+    if (!has_invalid_plane) {
+      egl_src_image =
+          n_eglCreateImageKHR(eglGetCurrentDisplay(), EGL_NO_CONTEXT,
+                              EGL_LINUX_DMA_BUF_EXT, nullptr, attribs);
+    }
+
+    for (int i = 0; i < num_planes; i++) {
+      if (plane_fds[i] >= 0) {
+        close(plane_fds[i]);
+      }
+    }
   }
 
   if (!egl_src_image) {
