@@ -4,6 +4,7 @@
 
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
 
+#include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #ifdef NUI_SUPPORT
@@ -49,8 +50,19 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
                                      int32_t width,
                                      int32_t height) {
   if (render_target_display) {
-    egl_display_ =
-        eglGetDisplay(static_cast<wl_display*>(render_target_display));
+    auto* wayland_display = static_cast<struct wl_display*>(render_target_display);
+
+    egl_display_ = eglGetDisplay(wayland_display);
+
+    if (egl_display_ == EGL_NO_DISPLAY) {
+      auto* get_platform_display =
+          reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
+              eglGetProcAddress("eglGetPlatformDisplayEXT"));
+      if (get_platform_display) {
+        egl_display_ = get_platform_display(EGL_PLATFORM_WAYLAND_KHR,
+                                            wayland_display, nullptr);
+      }
+    }
   } else {
     egl_display_ = eglGetDisplay(tbm_dummy_display_create());
   }

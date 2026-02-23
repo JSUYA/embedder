@@ -116,6 +116,7 @@ TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
 
 bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   wl2_display_ = wl_display_connect(nullptr);
+
   if (!wl2_display_) {
     FT_LOG(Error) << "Could not connect to Wayland display.";
     return false;
