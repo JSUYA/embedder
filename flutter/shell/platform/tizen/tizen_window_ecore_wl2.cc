@@ -137,8 +137,8 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   wl_display_roundtrip(wl2_display_);
   wl_display_roundtrip(wl2_display_);
 
-  if (!compositor_ || !xdg_wm_base_) {
-    FT_LOG(Error) << "Missing required Wayland globals.";
+  if (!window_handle && !compositor_) {
+    FT_LOG(Error) << "Missing required Wayland globals: wl_compositor.";
     return false;
   }
 
@@ -155,33 +155,42 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
     return false;
   }
 
-  xdg_surface_ = xdg_wm_base_get_xdg_surface(xdg_wm_base_, wl2_surface_);
-  if (!xdg_surface_) {
-    FT_LOG(Error) << "Could not create xdg_surface.";
+  if (!xdg_wm_base_ && !window_handle) {
+    FT_LOG(Error) << "Missing required Wayland globals: xdg_wm_base.";
     return false;
   }
 
-  static const xdg_surface_listener kXdgSurfaceListener = {
-      HandleXdgSurfaceConfigure,
-  };
-  xdg_surface_add_listener(xdg_surface_, &kXdgSurfaceListener, this);
+  if (xdg_wm_base_) {
+    xdg_surface_ = xdg_wm_base_get_xdg_surface(xdg_wm_base_, wl2_surface_);
+    if (!xdg_surface_) {
+      FT_LOG(Error) << "Could not create xdg_surface.";
+      return false;
+    }
 
-  xdg_toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
-  if (!xdg_toplevel_) {
-    FT_LOG(Error) << "Could not create xdg_toplevel.";
-    return false;
+    static const xdg_surface_listener kXdgSurfaceListener = {
+        HandleXdgSurfaceConfigure,
+    };
+    xdg_surface_add_listener(xdg_surface_, &kXdgSurfaceListener, this);
+
+    xdg_toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
+    if (!xdg_toplevel_) {
+      FT_LOG(Error) << "Could not create xdg_toplevel.";
+      return false;
+    }
+
+    static const xdg_toplevel_listener kXdgToplevelListener = {
+        HandleXdgToplevelConfigure,
+        HandleXdgToplevelClose,
+    };
+    xdg_toplevel_add_listener(xdg_toplevel_, &kXdgToplevelListener, this);
+
+    static const xdg_wm_base_listener kWmBaseListener = {
+        HandleXdgWmBasePing,
+    };
+    xdg_wm_base_add_listener(xdg_wm_base_, &kWmBaseListener, this);
+  } else {
+    FT_LOG(Info) << "xdg_wm_base not available; continuing with pre-created Wayland surface.";
   }
-
-  static const xdg_toplevel_listener kXdgToplevelListener = {
-      HandleXdgToplevelConfigure,
-      HandleXdgToplevelClose,
-  };
-  xdg_toplevel_add_listener(xdg_toplevel_, &kXdgToplevelListener, this);
-
-  static const xdg_wm_base_listener kWmBaseListener = {
-      HandleXdgWmBasePing,
-  };
-  xdg_wm_base_add_listener(xdg_wm_base_, &kWmBaseListener, this);
 
   if (screen_geometry_.width <= 0 || screen_geometry_.height <= 0) {
     screen_geometry_.width = 720;
