@@ -58,6 +58,15 @@ FlutterTizenView::FlutterTizenView(FlutterViewId view_id,
   if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
     window->BindKeys(kBindableSystemKeys);
   }
+
+  // In some compositor setups (e.g. pre-created surfaces without xdg shell
+  // configure), an initial resize callback may not arrive automatically.
+  // Seed the engine viewport with current geometry to avoid a blank first frame.
+  TizenGeometry initial_geometry = tizen_view_->GetGeometry();
+  if (initial_geometry.width > 0 && initial_geometry.height > 0) {
+    OnResize(initial_geometry.left, initial_geometry.top, initial_geometry.width,
+             initial_geometry.height);
+  }
 }
 
 FlutterTizenView::~FlutterTizenView() {
