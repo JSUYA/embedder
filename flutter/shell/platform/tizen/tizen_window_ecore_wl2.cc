@@ -135,7 +135,7 @@ TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
 }
 
 bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
-  TEMP_DIAG_ECORE_WL2("CreateWindow begin. window_handle=" << window_handle);
+  TEMP_DIAG_ECORE_WL2("CreateWindow begin [diag-r7]. window_handle=" << window_handle);
   wl2_display_ = wl_display_connect(nullptr);
 
   if (!wl2_display_) {
@@ -849,34 +849,25 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     return;
   }
 
-  // [TEMP_DIAG_REMOVE] Keep registry logging readable (avoid log flood).
-  if (strcmp(interface, wl_compositor_interface.name) == 0 ||
-      strcmp(interface, xdg_wm_base_interface.name) == 0 ||
-      strcmp(interface, wl_shell_interface.name) == 0 ||
-      strcmp(interface, wl_seat_interface.name) == 0 ||
-      strcmp(interface, wl_output_interface.name) == 0 ||
-      strcmp(interface, tizen_surface_interface.name) == 0 ||
-      strcmp(interface, tizen_policy_interface.name) == 0 ||
-      strcmp(interface, tizen_keyrouter_interface.name) == 0) {
-    TEMP_DIAG_ECORE_WL2("Registry global: name=" << name << " iface="
-                        << interface << " ver=" << version);
-  }
-
   if (strcmp(interface, wl_compositor_interface.name) == 0) {
     self->compositor_ = static_cast<wl_compositor*>(
         wl_registry_bind(registry, name, &wl_compositor_interface,
                          std::min(version, 4u)));
+    TEMP_DIAG_ECORE_WL2("Bind wl_compositor name=" << name << " ver=" << version);
   } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
     self->xdg_wm_base_ = static_cast<xdg_wm_base*>(
         wl_registry_bind(registry, name, &xdg_wm_base_interface,
                          std::min(version, 1u)));
+    TEMP_DIAG_ECORE_WL2("Bind xdg_wm_base name=" << name << " ver=" << version);
   } else if (strcmp(interface, wl_shell_interface.name) == 0) {
     self->wl_shell_ = static_cast<wl_shell*>(
         wl_registry_bind(registry, name, &wl_shell_interface, 1));
+    TEMP_DIAG_ECORE_WL2("Bind wl_shell name=" << name << " ver=" << version);
   } else if (strcmp(interface, wl_seat_interface.name) == 0) {
     self->seat_ = static_cast<wl_seat*>(
         wl_registry_bind(registry, name, &wl_seat_interface,
                          std::min(version, 5u)));
+    TEMP_DIAG_ECORE_WL2("Bind wl_seat name=" << name << " ver=" << version);
     static const wl_seat_listener kSeatListener = {
         HandleSeatCapabilities,
         HandleSeatName,
@@ -884,6 +875,7 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     wl_seat_add_listener(self->seat_, &kSeatListener, self);
   } else if (strcmp(interface, wl_output_interface.name) == 0) {
     if (!self->output_) {
+      TEMP_DIAG_ECORE_WL2("Bind wl_output name=" << name << " ver=" << version);
       self->output_ = static_cast<wl_output*>(
           wl_registry_bind(registry, name, &wl_output_interface,
                            std::min(version, 3u)));
@@ -903,6 +895,7 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->tizen_policy_ = static_cast<tizen_policy*>(
         wl_registry_bind(registry, name, &tizen_policy_interface,
                          std::min(version, 15u)));
+    TEMP_DIAG_ECORE_WL2("Bind tizen_policy name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_indicator_interface.name) == 0) {
     self->tizen_indicator_ = static_cast<tizen_indicator*>(
         wl_registry_bind(registry, name, &tizen_indicator_interface,
@@ -911,10 +904,12 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->tizen_keyrouter_ = static_cast<tizen_keyrouter*>(
         wl_registry_bind(registry, name, &tizen_keyrouter_interface,
                          std::min(version, 2u)));
+    TEMP_DIAG_ECORE_WL2("Bind tizen_keyrouter name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_surface_interface.name) == 0) {
     self->tizen_surface_ = static_cast<tizen_surface*>(
         wl_registry_bind(registry, name, &tizen_surface_interface,
                          std::min(version, 1u)));
+    TEMP_DIAG_ECORE_WL2("Bind tizen_surface name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_screen_rotation_interface.name) == 0) {
     self->tizen_screen_rotation_ = static_cast<tizen_screen_rotation*>(
         wl_registry_bind(registry, name, &tizen_screen_rotation_interface,
