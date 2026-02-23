@@ -219,8 +219,22 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
         HandleXdgWmBasePing,
     };
     xdg_wm_base_add_listener(xdg_wm_base_, &kWmBaseListener, this);
+    TEMP_DIAG_ECORE_WL2("Using xdg-shell path.");
   } else {
-    FT_LOG(Info) << "xdg_wm_base not available; using compatibility path for pre-created window.";
+    TEMP_DIAG_ECORE_WL2("xdg_wm_base not available. Trying wl_shell fallback.");
+    if (wl_shell_) {
+      wl_shell_surface_ = wl_shell_get_shell_surface(wl_shell_, wl2_surface_);
+      if (wl_shell_surface_) {
+        wl_shell_surface_set_toplevel(wl_shell_surface_);
+        TEMP_DIAG_ECORE_WL2("wl_shell fallback active. shell_surface="
+                            << wl_shell_surface_);
+      } else {
+        TEMP_DIAG_ECORE_WL2("wl_shell fallback failed to create shell_surface.");
+      }
+    } else {
+      TEMP_DIAG_ECORE_WL2("No wl_shell global available either.");
+    }
+
     if (window_handle) {
       // In some hosts, window_handle is already an EGL-native window object.
       // Keep it as a render target fallback when wl_egl_window creation is
@@ -447,6 +461,16 @@ void TizenWindowEcoreWl2::DestroyWindow() {
   if (xdg_wm_base_) {
     xdg_wm_base_destroy(xdg_wm_base_);
     xdg_wm_base_ = nullptr;
+  }
+
+  if (wl_shell_surface_) {
+    wl_shell_surface_destroy(wl_shell_surface_);
+    wl_shell_surface_ = nullptr;
+  }
+
+  if (wl_shell_) {
+    wl_shell_destroy(wl_shell_);
+    wl_shell_ = nullptr;
   }
 
   if (wl_egl_window_) {
@@ -809,6 +833,8 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
                                                const char* interface,
                                                uint32_t version) {
   auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  TEMP_DIAG_ECORE_WL2("Registry global: name=" << name << " iface="
+                      << interface << " ver=" << version);
   if (!self) {
     return;
   }
@@ -821,6 +847,9 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->xdg_wm_base_ = static_cast<xdg_wm_base*>(
         wl_registry_bind(registry, name, &xdg_wm_base_interface,
                          std::min(version, 1u)));
+  } else if (strcmp(interface, wl_shell_interface.name) == 0) {
+    self->wl_shell_ = static_cast<wl_shell*>(
+        wl_registry_bind(registry, name, &wl_shell_interface, 1));
   } else if (strcmp(interface, wl_seat_interface.name) == 0) {
     self->seat_ = static_cast<wl_seat*>(
         wl_registry_bind(registry, name, &wl_seat_interface,

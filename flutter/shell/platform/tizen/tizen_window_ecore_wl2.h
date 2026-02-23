@@ -273,6 +273,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   xdg_wm_base* xdg_wm_base_ = nullptr;
   xdg_surface* xdg_surface_ = nullptr;
   xdg_toplevel* xdg_toplevel_ = nullptr;
+  wl_shell* wl_shell_ = nullptr;
+  wl_shell_surface* wl_shell_surface_ = nullptr;
 
   wl_seat* seat_ = nullptr;
   wl_pointer* pointer_ = nullptr;
