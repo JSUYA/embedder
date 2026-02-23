@@ -283,6 +283,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_touch* touch_ = nullptr;
   wl_output* output_ = nullptr;
   wl_data_device_manager* data_device_manager_ = nullptr;
+  wl_shm* shm_ = nullptr;
   wl_surface* cursor_surface_ = nullptr;
   wl_cursor_theme* cursor_theme_ = nullptr;
   wl_cursor* default_cursor_ = nullptr;

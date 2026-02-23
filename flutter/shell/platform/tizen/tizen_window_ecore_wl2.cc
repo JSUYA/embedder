@@ -334,10 +334,26 @@ void TizenWindowEcoreWl2::SetWindowOptions() {
 }
 
 void TizenWindowEcoreWl2::EnableCursor() {
-  // [TEMP_DIAG_REMOVE] Disabled direct cursor-theme path temporarily because
-  // it regressed rendering on some compositor stacks. Keep app rendering stable
-  // first, then re-enable cursor with wl_shm-backed initialization.
-  TEMP_DIAG_ECORE_WL2("EnableCursor temporarily disabled for stability.");
+  // [TEMP_DIAG_REMOVE] Cursor restore path (wl_shm-backed).
+  if (!compositor_ || !wl2_display_ || !shm_) {
+    TEMP_DIAG_ECORE_WL2("EnableCursor skipped. compositor=" << compositor_
+                        << " display=" << wl2_display_ << " shm=" << shm_);
+    return;
+  }
+
+  if (!cursor_surface_) {
+    cursor_surface_ = wl_compositor_create_surface(compositor_);
+  }
+  if (!cursor_theme_) {
+    cursor_theme_ = wl_cursor_theme_load(nullptr, 24, shm_);
+  }
+  if (cursor_theme_ && !default_cursor_) {
+    default_cursor_ = wl_cursor_theme_get_cursor(cursor_theme_, "left_ptr");
+  }
+
+  TEMP_DIAG_ECORE_WL2("EnableCursor ready. cursor_surface=" << cursor_surface_
+                      << " theme=" << cursor_theme_
+                      << " cursor=" << default_cursor_);
 }
 
 #ifdef TV_PROFILE
@@ -458,6 +474,11 @@ void TizenWindowEcoreWl2::DestroyWindow() {
   if (data_device_manager_) {
     wl_data_device_manager_destroy(data_device_manager_);
     data_device_manager_ = nullptr;
+  }
+
+  if (shm_) {
+    wl_shm_destroy(shm_);
+    shm_ = nullptr;
   }
 
   if (xdg_toplevel_) {
@@ -891,6 +912,10 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->data_device_manager_ = static_cast<wl_data_device_manager*>(
         wl_registry_bind(registry, name, &wl_data_device_manager_interface,
                          std::min(version, 3u)));
+  } else if (strcmp(interface, wl_shm_interface.name) == 0) {
+    self->shm_ = static_cast<wl_shm*>(
+        wl_registry_bind(registry, name, &wl_shm_interface, std::min(version, 1u)));
+    TEMP_DIAG_ECORE_WL2("Bind wl_shm name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_policy_interface.name) == 0) {
     self->tizen_policy_ = static_cast<tizen_policy*>(
         wl_registry_bind(registry, name, &tizen_policy_interface,
@@ -1072,6 +1097,20 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->last_input_serial_ = serial;
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
+
+  if (self->default_cursor_ && self->cursor_surface_) {
+    wl_cursor_image* image = self->default_cursor_->images[0];
+    if (image) {
+      wl_buffer* buffer = wl_cursor_image_get_buffer(image);
+      wl_pointer_set_cursor(pointer, serial, self->cursor_surface_,
+                            image->hotspot_x, image->hotspot_y);
+      wl_surface_attach(self->cursor_surface_, buffer, 0, 0);
+      wl_surface_damage(self->cursor_surface_, 0, 0, image->width,
+                        image->height);
+      wl_surface_commit(self->cursor_surface_);
+      wl_display_flush(self->wl2_display_);
+    }
+  }
 
   if (self->view_delegate_) {
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
