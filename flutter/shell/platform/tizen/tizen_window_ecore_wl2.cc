@@ -160,9 +160,18 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   }
 
   if (window_handle) {
-    wl2_surface_ = static_cast<wl_surface*>(window_handle);
-    owns_surface_ = false;
-    FT_LOG(Info) << "Using pre-created window handle as wl_surface.";
+    // Legacy hosts may still pass an Ecore window handle here. Without Ecore,
+    // we cannot safely unwrap that to wl_surface. Prefer creating our own
+    // wl_surface when compositor is available.
+    if (compositor_) {
+      wl2_surface_ = wl_compositor_create_surface(compositor_);
+      owns_surface_ = true;
+      FT_LOG(Info) << "Ignored legacy pre-created window handle; created wl_surface via compositor.";
+    } else {
+      wl2_surface_ = static_cast<wl_surface*>(window_handle);
+      owns_surface_ = false;
+      FT_LOG(Info) << "Using pre-created window handle as wl_surface.";
+    }
   } else {
     wl2_surface_ = wl_compositor_create_surface(compositor_);
     owns_surface_ = true;
