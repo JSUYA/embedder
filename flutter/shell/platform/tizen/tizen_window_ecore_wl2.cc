@@ -31,6 +31,9 @@ namespace flutter {
 
 namespace {
 
+// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
+#define TEMP_DIAG_ECORE_WL2(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][WL2] " << msg
+
 constexpr int kScrollDirectionVertical = WL_POINTER_AXIS_VERTICAL_SCROLL;
 constexpr int kScrollDirectionHorizontal = WL_POINTER_AXIS_HORIZONTAL_SCROLL;
 
@@ -132,6 +135,7 @@ TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
 }
 
 bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
+  TEMP_DIAG_ECORE_WL2("CreateWindow begin. window_handle=" << window_handle);
   wl2_display_ = wl_display_connect(nullptr);
 
   if (!wl2_display_) {
@@ -153,6 +157,9 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
 
   wl_display_roundtrip(wl2_display_);
   wl_display_roundtrip(wl2_display_);
+  TEMP_DIAG_ECORE_WL2("Registry roundtrip done. compositor=" << compositor_
+                      << " xdg_wm_base=" << xdg_wm_base_
+                      << " seat=" << seat_ << " output=" << output_);
 
   if (!window_handle && !compositor_) {
     FT_LOG(Error) << "Missing required Wayland globals: wl_compositor.";
@@ -181,6 +188,8 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
     FT_LOG(Error) << "Could not create Wayland surface.";
     return false;
   }
+  TEMP_DIAG_ECORE_WL2("Surface ready. wl_surface=" << wl2_surface_
+                      << " owns_surface=" << owns_surface_);
 
   if (xdg_wm_base_) {
     xdg_surface_ = xdg_wm_base_get_xdg_surface(xdg_wm_base_, wl2_surface_);
@@ -235,6 +244,10 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   if (!is_vulkan_) {
     wl_egl_window_ =
         wl_egl_window_create(wl2_surface_, geometry_.width, geometry_.height);
+    TEMP_DIAG_ECORE_WL2("EGL window create result. wl_egl_window="
+                        << wl_egl_window_ << " external_egl_window="
+                        << external_egl_window_ << " geometry="
+                        << geometry_.width << "x" << geometry_.height);
     if (!wl_egl_window_ && !external_egl_window_) {
       FT_LOG(Error) << "Could not create wl_egl_window.";
       return false;
@@ -269,6 +282,7 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   }
 
   running_ = true;
+  TEMP_DIAG_ECORE_WL2("CreateWindow success. running=" << running_);
   return true;
 }
 
@@ -594,6 +608,8 @@ void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
 }
 
 void TizenWindowEcoreWl2::Show() {
+  TEMP_DIAG_ECORE_WL2("Show called. wl_surface=" << wl2_surface_
+                      << " xdg=" << xdg_wm_base_);
   if (!wl2_surface_) {
     return;
   }
@@ -875,6 +891,7 @@ void TizenWindowEcoreWl2::HandleXdgWmBasePing(void* data,
 void TizenWindowEcoreWl2::HandleXdgSurfaceConfigure(void* data,
                                                     xdg_surface* surface,
                                                     uint32_t serial) {
+  TEMP_DIAG_ECORE_WL2("HandleXdgSurfaceConfigure serial=" << serial);
   auto* self = static_cast<TizenWindowEcoreWl2*>(data);
   if (!self) {
     return;

@@ -16,6 +16,9 @@
 
 namespace {
 
+// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
+#define TEMP_DIAG_VIEW(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][VIEW] " << msg
+
 constexpr char kSysMenuKey[] = "XF86SysMenu";
 constexpr char kBackKey[] = "XF86Back";
 constexpr char kExitKey[] = "XF86Exit";
@@ -111,6 +114,9 @@ void FlutterTizenView::OnResize(int32_t left,
                                 int32_t top,
                                 int32_t width,
                                 int32_t height) {
+  TEMP_DIAG_VIEW("OnResize left=" << left << " top=" << top << " w="
+                 << width << " h=" << height << " rotation="
+                 << rotation_degree_);
   if (rotation_degree_ == 90 || rotation_degree_ == 270) {
     std::swap(width, height);
   }
@@ -326,6 +332,7 @@ void FlutterTizenView::OnCommit(const std::string& str) {
 }
 
 void FlutterTizenView::SendInitialGeometry() {
+  TEMP_DIAG_VIEW("SendInitialGeometry called.");
   if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
     OnRotate(window->GetRotation());
   } else {
@@ -355,10 +362,11 @@ void FlutterTizenView::SendWindowMetrics(int32_t left,
   }
 
   static int metrics_log_count = 0;
-  if (metrics_log_count < 5) {
-    FT_LOG(Info) << "SendWindowMetrics: x=" << left << " y=" << top
-                 << " w=" << width << " h=" << height
-                 << " ratio=" << pixel_ratio;
+  if (metrics_log_count < 20) {
+    TEMP_DIAG_VIEW("SendWindowMetrics x=" << left << " y=" << top
+                    << " w=" << width << " h=" << height
+                    << " ratio=" << pixel_ratio
+                    << " engine_running=" << engine_->IsRunning());
     metrics_log_count++;
   }
 

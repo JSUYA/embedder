@@ -29,6 +29,9 @@
 
 namespace flutter {
 
+// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
+#define TEMP_DIAG_ENGINE(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][ENGINE] " << msg
+
 namespace {
 
 // Unique number associated with platform tasks.
@@ -109,6 +112,8 @@ std::unique_ptr<TizenRenderer> FlutterTizenEngine::CreateRenderer(
 }
 
 bool FlutterTizenEngine::RunEngine() {
+  TEMP_DIAG_ENGINE("RunEngine begin. engine=" << engine_ << " renderer="
+                   << renderer_.get() << " headed=" << IsHeaded());
   if (engine_ != nullptr) {
     FT_LOG(Error) << "The engine has already started.";
     return false;
@@ -229,7 +234,7 @@ bool FlutterTizenEngine::RunEngine() {
     return false;
   }
 
-  FT_LOG(Info) << "Flutter engine started. handle=" << engine_;
+  TEMP_DIAG_ENGINE("RunEngine success. handle=" << engine_);
 
   internal_plugin_registrar_ =
       std::make_unique<PluginRegistrar>(plugin_registrar_.get());

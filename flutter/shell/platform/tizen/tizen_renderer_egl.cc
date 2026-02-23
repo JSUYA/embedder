@@ -20,6 +20,9 @@
 
 namespace flutter {
 
+// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
+#define TEMP_DIAG_EGL(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][EGL] " << msg
+
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
                                    bool enable_impeller)
     : enable_impeller_(enable_impeller) {
@@ -49,6 +52,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
                                      void* render_target_display,
                                      int32_t width,
                                      int32_t height) {
+  TEMP_DIAG_EGL("CreateSurface begin. render_target=" << render_target
+               << " display=" << render_target_display << " size=" << width
+               << "x" << height);
   if (render_target_display) {
     auto* wayland_display = static_cast<struct wl_display*>(render_target_display);
 
@@ -72,6 +78,7 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     FT_LOG(Error) << "Could not get EGL display.";
     return false;
   }
+  TEMP_DIAG_EGL("EGL display acquired. egl_display=" << egl_display_);
 
   if (!ChooseEGLConfiguration()) {
     FT_LOG(Error) << "Could not choose an EGL configuration.";
@@ -315,6 +322,7 @@ bool TizenRendererEgl::OnPresent() {
     return false;
   }
 
+  TEMP_DIAG_EGL("eglSwapBuffers success. egl_surface=" << egl_surface_);
   static int present_log_count = 0;
   if (present_log_count < 5) {
     FT_LOG(Info) << "EGL present success. count=" << (present_log_count + 1);
