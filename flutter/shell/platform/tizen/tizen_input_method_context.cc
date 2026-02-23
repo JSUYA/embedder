@@ -15,6 +15,27 @@ namespace {
 
 constexpr uint32_t kInputPanelEventTypeState = 0;
 
+// [TEMP_DIAG_REMOVE] No-op handlers to avoid compositor aborts when
+// wl_text_input emits optional events that were previously bound to nullptr.
+void NoopModifiersMap(void*, wl_text_input*, wl_array*) {}
+void NoopPreeditStyling(void*, wl_text_input*, uint32_t, uint32_t, uint32_t) {}
+void NoopCursorPosition(void*, wl_text_input*, int32_t, int32_t) {}
+void NoopDeleteSurroundingText(void*, wl_text_input*, int32_t, uint32_t) {}
+void NoopKeysym(void*, wl_text_input*, uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t) {}
+void NoopLanguage(void*, wl_text_input*, uint32_t, const char*) {}
+void NoopTextDirection(void*, wl_text_input*, uint32_t, uint32_t) {}
+void NoopSelectionRegion(void*, wl_text_input*, uint32_t, int32_t, int32_t) {}
+void NoopPrivateCommand(void*, wl_text_input*, uint32_t, const char*) {}
+void NoopInputPanelData(void*, wl_text_input*, uint32_t, const char*, uint32_t) {}
+void NoopGetSelectionText(void*, wl_text_input*, int32_t) {}
+void NoopGetSurroundingText(void*, wl_text_input*, uint32_t, uint32_t, int32_t) {}
+void NoopHidePermission(void*, wl_text_input*, uint32_t) {}
+void NoopRecaptureString(void*, wl_text_input*, uint32_t, int32_t, uint32_t,
+                         const char*, const char*, const char*) {}
+void NoopCommitContent(void*, wl_text_input*, uint32_t, const char*,
+                       const char*, const char*) {}
+
 }  // namespace
 
 namespace flutter {
@@ -176,28 +197,28 @@ void TizenInputMethodContext::RegisterTextInputListener() {
   static const wl_text_input_listener kTextInputListener = {
       EnterCallback,
       LeaveCallback,
-      nullptr,  // modifiers_map
+      NoopModifiersMap,
       InputPanelStateCallback,
       PreeditStringCallback,
-      nullptr,  // preedit_styling
+      NoopPreeditStyling,
       PreeditCursorCallback,
       CommitStringCallback,
-      nullptr,  // cursor_position
-      nullptr,  // delete_surrounding_text
-      nullptr,  // keysym
-      nullptr,  // language
-      nullptr,  // text_direction
-      nullptr,  // selection_region
-      nullptr,  // private_command
+      NoopCursorPosition,
+      NoopDeleteSurroundingText,
+      NoopKeysym,
+      NoopLanguage,
+      NoopTextDirection,
+      NoopSelectionRegion,
+      NoopPrivateCommand,
       InputPanelGeometryCallback,
-      nullptr,  // input_panel_data
-      nullptr,  // get_selection_text
-      nullptr,  // get_surrounding_text
+      NoopInputPanelData,
+      NoopGetSelectionText,
+      NoopGetSurroundingText,
       FilterKeyEventDoneCallback,
-      nullptr,  // hide_permission
-      nullptr,  // recapture_string
+      NoopHidePermission,
+      NoopRecaptureString,
       InputPanelEventCallback,
-      nullptr,  // commit_content
+      NoopCommitContent,
   };
 
   wl_text_input_add_listener(text_input_, &kTextInputListener, this);
