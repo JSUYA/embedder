@@ -32,7 +32,7 @@ namespace flutter {
 namespace {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_ECORE_WL2(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][WL2] " << msg
+#define TEMP_DIAG_ECORE_WL2(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
 constexpr int kScrollDirectionVertical = WL_POINTER_AXIS_VERTICAL_SCROLL;
 constexpr int kScrollDirectionHorizontal = WL_POINTER_AXIS_HORIZONTAL_SCROLL;

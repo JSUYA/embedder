@@ -17,7 +17,7 @@
 namespace {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_VIEW(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][VIEW] " << msg
+#define TEMP_DIAG_VIEW(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
 constexpr char kSysMenuKey[] = "XF86SysMenu";
 constexpr char kBackKey[] = "XF86Back";

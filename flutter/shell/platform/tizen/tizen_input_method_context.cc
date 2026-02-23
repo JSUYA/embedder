@@ -74,15 +74,12 @@ bool TizenInputMethodContext::HandleKeyEvent(const char* device_name,
     return false;
   }
 
-  const char* key_name = key ? key : "";
   pending_filter_result_ = false;
   pending_filter_serial_ = ++serial_;
 
   // [TEMP_DIAG_REMOVE] Some compositor/IME stacks crash or deadlock when
   // filter_key_event is used in the direct-wayland path. Keep the app stable
   // by bypassing IME key filtering and allowing key events to flow normally.
-  FT_LOG(Error) << "[TEMP_DIAG_REMOVE][IME] bypass filter_key_event key="
-                << key_name << " down=" << is_down;
   pending_filter_serial_ = 0;
   pending_filter_result_ = false;
   return false;
@@ -172,12 +169,6 @@ void TizenInputMethodContext::UnregisterInputPanelEventCallback() {
 
 void TizenInputMethodContext::InitializeTextInput(
     wl_text_input_manager* text_input_manager) {
-  // [TEMP_DIAG_REMOVE] Disable wl_text_input integration temporarily.
-  // Some compositor stacks emit wl_text_input opcodes that still trigger
-  // listener aborts in the current direct-wayland migration path.
-  FT_LOG(Error) << "[TEMP_DIAG_REMOVE][IME] wl_text_input disabled for crash mitigation.";
-  return;
-
   if (!display_ || !seat_ || !surface_ || !text_input_manager) {
     FT_LOG(Info)
         << "wl_text_input is unavailable. Falling back to local text state.";

@@ -21,7 +21,7 @@
 namespace flutter {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_EGL(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][EGL] " << msg
+#define TEMP_DIAG_EGL(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
                                    bool enable_impeller)

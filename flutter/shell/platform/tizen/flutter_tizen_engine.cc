@@ -30,7 +30,7 @@
 namespace flutter {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_ENGINE(msg) FT_LOG(Error) << "[TEMP_DIAG_REMOVE][ENGINE] " << msg
+#define TEMP_DIAG_ENGINE(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
 namespace {
 
