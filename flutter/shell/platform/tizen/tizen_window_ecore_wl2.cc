@@ -1022,7 +1022,9 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
     return;
   }
 
-  if (capabilities & WL_SEAT_CAPABILITY_POINTER) {
+  // Aggressive perf mode: disable app-side wl_pointer subscription entirely
+  // to eliminate cursor-move induced frame drops while isolating root cause.
+  if (false && (capabilities & WL_SEAT_CAPABILITY_POINTER)) {
     if (!self->pointer_) {
       self->pointer_ = wl_seat_get_pointer(seat);
       static const wl_pointer_listener kPointerListener = {
