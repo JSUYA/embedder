@@ -17,10 +17,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 
 #include <text-client-protocol.h>
 #include <wayland-client-protocol.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/tizen/logger.h"
@@ -29,6 +31,9 @@
 namespace flutter {
 
 namespace {
+
+// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
+#define TEMP_DIAG_ECORE_WL2(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
 constexpr int kScrollDirectionVertical = WL_POINTER_AXIS_VERTICAL_SCROLL;
 constexpr int kScrollDirectionHorizontal = WL_POINTER_AXIS_HORIZONTAL_SCROLL;
@@ -74,6 +79,22 @@ FlutterPointerMouseButtons ToFlutterPointerButton(uint32_t button) {
   }
 }
 
+xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
+  if (key == "XF86PlayBack") {
+    return XKB_KEY_XF86AudioPlay;
+  }
+  if (key == "XF86ChannelGuide") {
+    return XKB_KEY_XF86Guide;
+  }
+  if (key == "XF86Caption") {
+    return XKB_KEY_XF86Subtitle;
+  }
+  if (key == "XF86Exit") {
+    return XKB_KEY_XF86Close;
+  }
+  return XKB_KEY_NoSymbol;
+}
+
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
 }
@@ -115,7 +136,9 @@ TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
 }
 
 bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
+  TEMP_DIAG_ECORE_WL2("CreateWindow begin [diag-r7]. window_handle=" << window_handle);
   wl2_display_ = wl_display_connect(nullptr);
+
   if (!wl2_display_) {
     FT_LOG(Error) << "Could not connect to Wayland display.";
     return false;
@@ -135,15 +158,28 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
 
   wl_display_roundtrip(wl2_display_);
   wl_display_roundtrip(wl2_display_);
+  TEMP_DIAG_ECORE_WL2("Registry roundtrip done. compositor=" << compositor_
+                      << " xdg_wm_base=" << xdg_wm_base_
+                      << " seat=" << seat_ << " output=" << output_);
 
-  if (!compositor_ || !xdg_wm_base_) {
-    FT_LOG(Error) << "Missing required Wayland globals.";
+  if (!window_handle && !compositor_) {
+    FT_LOG(Error) << "Missing required Wayland globals: wl_compositor.";
     return false;
   }
 
   if (window_handle) {
-    wl2_surface_ = static_cast<wl_surface*>(window_handle);
-    owns_surface_ = false;
+    // Legacy hosts may still pass an Ecore window handle here. Without Ecore,
+    // we cannot safely unwrap that to wl_surface. Prefer creating our own
+    // wl_surface when compositor is available.
+    if (compositor_) {
+      wl2_surface_ = wl_compositor_create_surface(compositor_);
+      owns_surface_ = true;
+      FT_LOG(Info) << "Ignored legacy pre-created window handle; created wl_surface via compositor.";
+    } else {
+      wl2_surface_ = static_cast<wl_surface*>(window_handle);
+      owns_surface_ = false;
+      FT_LOG(Info) << "Using pre-created window handle as wl_surface.";
+    }
   } else {
     wl2_surface_ = wl_compositor_create_surface(compositor_);
     owns_surface_ = true;
@@ -153,34 +189,60 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
     FT_LOG(Error) << "Could not create Wayland surface.";
     return false;
   }
+  TEMP_DIAG_ECORE_WL2("Surface ready. wl_surface=" << wl2_surface_
+                      << " owns_surface=" << owns_surface_);
 
-  xdg_surface_ = xdg_wm_base_get_xdg_surface(xdg_wm_base_, wl2_surface_);
-  if (!xdg_surface_) {
-    FT_LOG(Error) << "Could not create xdg_surface.";
-    return false;
+  if (xdg_wm_base_) {
+    xdg_surface_ = xdg_wm_base_get_xdg_surface(xdg_wm_base_, wl2_surface_);
+    if (!xdg_surface_) {
+      FT_LOG(Error) << "Could not create xdg_surface.";
+      return false;
+    }
+
+    static const xdg_surface_listener kXdgSurfaceListener = {
+        HandleXdgSurfaceConfigure,
+    };
+    xdg_surface_add_listener(xdg_surface_, &kXdgSurfaceListener, this);
+
+    xdg_toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
+    if (!xdg_toplevel_) {
+      FT_LOG(Error) << "Could not create xdg_toplevel.";
+      return false;
+    }
+
+    static const xdg_toplevel_listener kXdgToplevelListener = {
+        HandleXdgToplevelConfigure,
+        HandleXdgToplevelClose,
+    };
+    xdg_toplevel_add_listener(xdg_toplevel_, &kXdgToplevelListener, this);
+
+    static const xdg_wm_base_listener kWmBaseListener = {
+        HandleXdgWmBasePing,
+    };
+    xdg_wm_base_add_listener(xdg_wm_base_, &kWmBaseListener, this);
+    TEMP_DIAG_ECORE_WL2("Using xdg-shell path.");
+  } else {
+    TEMP_DIAG_ECORE_WL2("xdg_wm_base not available. Trying wl_shell fallback.");
+    if (wl_shell_) {
+      wl_shell_surface_ = wl_shell_get_shell_surface(wl_shell_, wl2_surface_);
+      if (wl_shell_surface_) {
+        wl_shell_surface_set_toplevel(wl_shell_surface_);
+        TEMP_DIAG_ECORE_WL2("wl_shell fallback active. shell_surface="
+                            << wl_shell_surface_);
+      } else {
+        TEMP_DIAG_ECORE_WL2("wl_shell fallback failed to create shell_surface.");
+      }
+    } else {
+      TEMP_DIAG_ECORE_WL2("No wl_shell global available either.");
+    }
+
+    if (window_handle) {
+      // In some hosts, window_handle is already an EGL-native window object.
+      // Keep it as a render target fallback when wl_egl_window creation is
+      // not possible or does not present frames.
+      external_egl_window_ = window_handle;
+    }
   }
-
-  static const xdg_surface_listener kXdgSurfaceListener = {
-      HandleXdgSurfaceConfigure,
-  };
-  xdg_surface_add_listener(xdg_surface_, &kXdgSurfaceListener, this);
-
-  xdg_toplevel_ = xdg_surface_get_toplevel(xdg_surface_);
-  if (!xdg_toplevel_) {
-    FT_LOG(Error) << "Could not create xdg_toplevel.";
-    return false;
-  }
-
-  static const xdg_toplevel_listener kXdgToplevelListener = {
-      HandleXdgToplevelConfigure,
-      HandleXdgToplevelClose,
-  };
-  xdg_toplevel_add_listener(xdg_toplevel_, &kXdgToplevelListener, this);
-
-  static const xdg_wm_base_listener kWmBaseListener = {
-      HandleXdgWmBasePing,
-  };
-  xdg_wm_base_add_listener(xdg_wm_base_, &kWmBaseListener, this);
 
   if (screen_geometry_.width <= 0 || screen_geometry_.height <= 0) {
     screen_geometry_.width = 720;
@@ -197,13 +259,22 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   if (!is_vulkan_) {
     wl_egl_window_ =
         wl_egl_window_create(wl2_surface_, geometry_.width, geometry_.height);
-    if (!wl_egl_window_) {
+    TEMP_DIAG_ECORE_WL2("EGL window create result. wl_egl_window="
+                        << wl_egl_window_ << " external_egl_window="
+                        << external_egl_window_ << " geometry="
+                        << geometry_.width << "x" << geometry_.height);
+    if (!wl_egl_window_ && !external_egl_window_) {
       FT_LOG(Error) << "Could not create wl_egl_window.";
       return false;
     }
+    if (!wl_egl_window_ && external_egl_window_) {
+      FT_LOG(Info) << "Falling back to external EGL window handle.";
+    }
   }
 
-  wl_surface_commit(wl2_surface_);
+  if (xdg_wm_base_ || owns_surface_) {
+    wl_surface_commit(wl2_surface_);
+  }
   wl_display_flush(wl2_display_);
 
   int display_fd = wl_display_get_fd(wl2_display_);
@@ -226,6 +297,7 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   }
 
   running_ = true;
+  TEMP_DIAG_ECORE_WL2("CreateWindow success. running=" << running_);
   return true;
 }
 
@@ -263,9 +335,26 @@ void TizenWindowEcoreWl2::SetWindowOptions() {
 }
 
 void TizenWindowEcoreWl2::EnableCursor() {
-#ifdef TV_PROFILE
-  FT_LOG(Info) << "EnableCursor via Ecore is no longer available.";
-#endif
+  // [TEMP_DIAG_REMOVE] Cursor restore path (wl_shm-backed).
+  if (!compositor_ || !wl2_display_ || !shm_) {
+    TEMP_DIAG_ECORE_WL2("EnableCursor skipped. compositor=" << compositor_
+                        << " display=" << wl2_display_ << " shm=" << shm_);
+    return;
+  }
+
+  if (!cursor_surface_) {
+    cursor_surface_ = wl_compositor_create_surface(compositor_);
+  }
+  if (!cursor_theme_) {
+    cursor_theme_ = wl_cursor_theme_load(nullptr, 24, shm_);
+  }
+  if (cursor_theme_ && !default_cursor_) {
+    default_cursor_ = wl_cursor_theme_get_cursor(cursor_theme_, "left_ptr");
+  }
+
+  TEMP_DIAG_ECORE_WL2("EnableCursor ready. cursor_surface=" << cursor_surface_
+                      << " theme=" << cursor_theme_
+                      << " cursor=" << default_cursor_);
 }
 
 #ifdef TV_PROFILE
@@ -327,6 +416,17 @@ void TizenWindowEcoreWl2::DestroyWindow() {
     seat_ = nullptr;
   }
 
+  if (cursor_surface_) {
+    wl_surface_destroy(cursor_surface_);
+    cursor_surface_ = nullptr;
+  }
+
+  if (cursor_theme_) {
+    wl_cursor_theme_destroy(cursor_theme_);
+    cursor_theme_ = nullptr;
+    default_cursor_ = nullptr;
+  }
+
   if (output_) {
     wl_output_destroy(output_);
     output_ = nullptr;
@@ -377,6 +477,11 @@ void TizenWindowEcoreWl2::DestroyWindow() {
     data_device_manager_ = nullptr;
   }
 
+  if (shm_) {
+    wl_shm_destroy(shm_);
+    shm_ = nullptr;
+  }
+
   if (xdg_toplevel_) {
     xdg_toplevel_destroy(xdg_toplevel_);
     xdg_toplevel_ = nullptr;
@@ -390,6 +495,16 @@ void TizenWindowEcoreWl2::DestroyWindow() {
   if (xdg_wm_base_) {
     xdg_wm_base_destroy(xdg_wm_base_);
     xdg_wm_base_ = nullptr;
+  }
+
+  if (wl_shell_surface_) {
+    wl_shell_surface_destroy(wl_shell_surface_);
+    wl_shell_surface_ = nullptr;
+  }
+
+  if (wl_shell_) {
+    wl_shell_destroy(wl_shell_);
+    wl_shell_ = nullptr;
   }
 
   if (wl_egl_window_) {
@@ -527,8 +642,11 @@ void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
   }
 
   for (const std::string& key : keys) {
-    uint32_t keycode =
-        static_cast<uint32_t>(xkb_keysym_from_name(key.c_str(), XKB_KEYSYM_NO_FLAGS));
+    uint32_t keycode = static_cast<uint32_t>(
+        xkb_keysym_from_name(key.c_str(), XKB_KEYSYM_NO_FLAGS));
+    if (keycode == XKB_KEY_NoSymbol) {
+      keycode = static_cast<uint32_t>(ResolveKeySymbolAlias(key));
+    }
     if (keycode == XKB_KEY_NoSymbol) {
       char* end = nullptr;
       unsigned long parsed = std::strtoul(key.c_str(), &end, 0);
@@ -548,11 +666,15 @@ void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
 }
 
 void TizenWindowEcoreWl2::Show() {
+  TEMP_DIAG_ECORE_WL2("Show called. wl_surface=" << wl2_surface_
+                      << " xdg=" << xdg_wm_base_);
   if (!wl2_surface_) {
     return;
   }
 
-  wl_surface_commit(wl2_surface_);
+  if (xdg_wm_base_ || owns_surface_) {
+    wl_surface_commit(wl2_surface_);
+  }
   wl_display_flush(wl2_display_);
 }
 
@@ -598,7 +720,10 @@ void* TizenWindowEcoreWl2::GetRenderTarget() {
   if (is_vulkan_) {
     return wl2_surface_;
   }
-  return wl_egl_window_;
+  if (wl_egl_window_) {
+    return wl_egl_window_;
+  }
+  return external_egl_window_;
 }
 
 void TizenWindowEcoreWl2::ActivateWindow() {
@@ -750,14 +875,21 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->compositor_ = static_cast<wl_compositor*>(
         wl_registry_bind(registry, name, &wl_compositor_interface,
                          std::min(version, 4u)));
+    TEMP_DIAG_ECORE_WL2("Bind wl_compositor name=" << name << " ver=" << version);
   } else if (strcmp(interface, xdg_wm_base_interface.name) == 0) {
     self->xdg_wm_base_ = static_cast<xdg_wm_base*>(
         wl_registry_bind(registry, name, &xdg_wm_base_interface,
                          std::min(version, 1u)));
+    TEMP_DIAG_ECORE_WL2("Bind xdg_wm_base name=" << name << " ver=" << version);
+  } else if (strcmp(interface, wl_shell_interface.name) == 0) {
+    self->wl_shell_ = static_cast<wl_shell*>(
+        wl_registry_bind(registry, name, &wl_shell_interface, 1));
+    TEMP_DIAG_ECORE_WL2("Bind wl_shell name=" << name << " ver=" << version);
   } else if (strcmp(interface, wl_seat_interface.name) == 0) {
     self->seat_ = static_cast<wl_seat*>(
         wl_registry_bind(registry, name, &wl_seat_interface,
                          std::min(version, 5u)));
+    TEMP_DIAG_ECORE_WL2("Bind wl_seat name=" << name << " ver=" << version);
     static const wl_seat_listener kSeatListener = {
         HandleSeatCapabilities,
         HandleSeatName,
@@ -765,6 +897,7 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     wl_seat_add_listener(self->seat_, &kSeatListener, self);
   } else if (strcmp(interface, wl_output_interface.name) == 0) {
     if (!self->output_) {
+      TEMP_DIAG_ECORE_WL2("Bind wl_output name=" << name << " ver=" << version);
       self->output_ = static_cast<wl_output*>(
           wl_registry_bind(registry, name, &wl_output_interface,
                            std::min(version, 3u)));
@@ -780,10 +913,15 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->data_device_manager_ = static_cast<wl_data_device_manager*>(
         wl_registry_bind(registry, name, &wl_data_device_manager_interface,
                          std::min(version, 3u)));
+  } else if (strcmp(interface, wl_shm_interface.name) == 0) {
+    self->shm_ = static_cast<wl_shm*>(
+        wl_registry_bind(registry, name, &wl_shm_interface, std::min(version, 1u)));
+    TEMP_DIAG_ECORE_WL2("Bind wl_shm name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_policy_interface.name) == 0) {
     self->tizen_policy_ = static_cast<tizen_policy*>(
         wl_registry_bind(registry, name, &tizen_policy_interface,
                          std::min(version, 15u)));
+    TEMP_DIAG_ECORE_WL2("Bind tizen_policy name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_indicator_interface.name) == 0) {
     self->tizen_indicator_ = static_cast<tizen_indicator*>(
         wl_registry_bind(registry, name, &tizen_indicator_interface,
@@ -792,10 +930,12 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
     self->tizen_keyrouter_ = static_cast<tizen_keyrouter*>(
         wl_registry_bind(registry, name, &tizen_keyrouter_interface,
                          std::min(version, 2u)));
+    TEMP_DIAG_ECORE_WL2("Bind tizen_keyrouter name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_surface_interface.name) == 0) {
     self->tizen_surface_ = static_cast<tizen_surface*>(
         wl_registry_bind(registry, name, &tizen_surface_interface,
                          std::min(version, 1u)));
+    TEMP_DIAG_ECORE_WL2("Bind tizen_surface name=" << name << " ver=" << version);
   } else if (strcmp(interface, tizen_screen_rotation_interface.name) == 0) {
     self->tizen_screen_rotation_ = static_cast<tizen_screen_rotation*>(
         wl_registry_bind(registry, name, &tizen_screen_rotation_interface,
@@ -824,6 +964,7 @@ void TizenWindowEcoreWl2::HandleXdgWmBasePing(void* data,
 void TizenWindowEcoreWl2::HandleXdgSurfaceConfigure(void* data,
                                                     xdg_surface* surface,
                                                     uint32_t serial) {
+  TEMP_DIAG_ECORE_WL2("HandleXdgSurfaceConfigure serial=" << serial);
   auto* self = static_cast<TizenWindowEcoreWl2*>(data);
   if (!self) {
     return;
@@ -958,6 +1099,20 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
+  if (self->default_cursor_ && self->cursor_surface_) {
+    wl_cursor_image* image = self->default_cursor_->images[0];
+    if (image) {
+      wl_buffer* buffer = wl_cursor_image_get_buffer(image);
+      wl_pointer_set_cursor(pointer, serial, self->cursor_surface_,
+                            image->hotspot_x, image->hotspot_y);
+      wl_surface_attach(self->cursor_surface_, buffer, 0, 0);
+      wl_surface_damage(self->cursor_surface_, 0, 0, image->width,
+                        image->height);
+      wl_surface_commit(self->cursor_surface_);
+      wl_display_flush(self->wl2_display_);
+    }
+  }
+
   if (self->view_delegate_) {
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                         GetCurrentTimeMillis(),
@@ -989,7 +1144,24 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  if (self->view_delegate_) {
+  // Coalesce high-frequency motion events to reduce unnecessary frame churn
+  // on low-power targets while preserving interaction fidelity.
+  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
+  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
+  const bool time_ready =
+      (self->last_pointer_sent_time_ == 0) ||
+      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
+  const bool moved_enough =
+      (self->last_pointer_sent_x_ < 0.0) ||
+      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
+           kPointerMoveMinDelta) ||
+      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
+           kPointerMoveMinDelta);
+
+  if (self->view_delegate_ && time_ready && moved_enough) {
+    self->last_pointer_sent_x_ = self->pointer_x_;
+    self->last_pointer_sent_y_ = self->pointer_y_;
+    self->last_pointer_sent_time_ = time;
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                         static_cast<size_t>(time),
                                         kFlutterPointerDeviceKindMouse, 0);
@@ -1019,10 +1191,12 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
 
   FlutterPointerMouseButtons flutter_button = ToFlutterPointerButton(button);
   if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+    self->pointer_button_pressed_ = true;
     self->view_delegate_->OnPointerDown(
         self->pointer_x_, self->pointer_y_, flutter_button,
         static_cast<size_t>(time), kFlutterPointerDeviceKindMouse, 0);
   } else {
+    self->pointer_button_pressed_ = false;
     self->view_delegate_->OnPointerUp(self->pointer_x_, self->pointer_y_,
                                       flutter_button,
                                       static_cast<size_t>(time),
