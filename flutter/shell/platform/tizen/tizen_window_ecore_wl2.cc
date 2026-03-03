@@ -853,11 +853,16 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
       FT_LOG(Error) << "wl_display_dispatch failed.";
       return FALSE;
     }
-  } else {
-    wl_display_dispatch_pending(self->wl2_display_);
+    // Drain a bounded number of queued events to reduce callback churn.
+    for (int i = 0; i < 8; ++i) {
+      if (wl_display_dispatch_pending(self->wl2_display_) <= 0) {
+        break;
+      }
+    }
   }
 
-  wl_display_flush(self->wl2_display_);
+  // Do not flush on every input callback; explicit flushes are issued at
+  // state-changing call sites.
   return TRUE;
 }
 
@@ -1113,11 +1118,8 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
     }
   }
 
-  if (self->view_delegate_) {
-    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                        GetCurrentTimeMillis(),
-                                        kFlutterPointerDeviceKindMouse, 0);
-  }
+  // Do not emit hover move on enter; this frequently triggers an immediate
+  // frame workload spike on some targets.
 }
 
 void TizenWindowEcoreWl2::HandlePointerLeave(void* data,
@@ -1144,28 +1146,10 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  // Coalesce high-frequency motion events to reduce unnecessary frame churn
-  // on low-power targets while preserving interaction fidelity.
-  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
-  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
-  const bool time_ready =
-      (self->last_pointer_sent_time_ == 0) ||
-      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
-  const bool moved_enough =
-      (self->last_pointer_sent_x_ < 0.0) ||
-      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
-           kPointerMoveMinDelta) ||
-      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
-           kPointerMoveMinDelta);
-
-  if (self->view_delegate_ && time_ready && moved_enough) {
-    self->last_pointer_sent_x_ = self->pointer_x_;
-    self->last_pointer_sent_y_ = self->pointer_y_;
-    self->last_pointer_sent_time_ = time;
-    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                        static_cast<size_t>(time),
-                                        kFlutterPointerDeviceKindMouse, 0);
-  }
+  // Aggressive perf mode: suppress hover move dispatch entirely.
+  // Pointer down/up/scroll events are still delivered.
+  (void)time;
+  return;
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
