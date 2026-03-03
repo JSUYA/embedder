@@ -402,6 +402,12 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
     display_io_watch_id_ = 0;
   }
 
+  if (display_dispatch_source_id_ != 0) {
+    g_source_remove(display_dispatch_source_id_);
+    display_dispatch_source_id_ = 0;
+    display_io_pending_ = false;
+  }
+
   if (pointer_move_source_id_ != 0) {
     g_source_remove(pointer_move_source_id_);
     pointer_move_source_id_ = 0;
@@ -871,17 +877,15 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
 
   if (condition & G_IO_IN) {
     self->perf_display_io_in_count_++;
-    if (wl_display_dispatch(self->wl2_display_) < 0) {
-      FT_LOG(Error) << "wl_display_dispatch failed.";
-      return FALSE;
-    }
-    // Drain already-queued events in one callback to reduce watch callback
-    // churn during high-frequency pointer traffic.
-    while (wl_display_dispatch_pending(self->wl2_display_) > 0) {
+    self->display_io_pending_ = true;
+    if (self->display_dispatch_source_id_ == 0) {
+      constexpr guint kDisplayDispatchIntervalMs = 16;
+      self->display_dispatch_source_id_ = g_timeout_add_full(
+          G_PRIORITY_DEFAULT, kDisplayDispatchIntervalMs, DispatchDisplayIO,
+          self, nullptr);
     }
   } else {
     self->perf_display_io_other_count_++;
-    wl_display_dispatch_pending(self->wl2_display_);
   }
 
   if (IsPerfDiagEnabled()) {
@@ -902,11 +906,35 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     }
   }
 
-  // Avoid unconditional flush on every readable display event. During pointer
-  // motion this path can be called at very high frequency and repeated flush()
-  // syscalls steal frame budget. Explicit flushes are already done at request
-  // submission points (surface commits, state updates).
   return TRUE;
+}
+
+gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_dispatch_source_id_ = 0;
+
+  if (!self->running_ || !self->wl2_display_ || !self->display_io_pending_) {
+    self->display_io_pending_ = false;
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_io_pending_ = false;
+
+  if (wl_display_dispatch(self->wl2_display_) < 0) {
+    FT_LOG(Error) << "wl_display_dispatch failed.";
+    return G_SOURCE_REMOVE;
+  }
+
+  int drain_count = 0;
+  while (drain_count < 8 && wl_display_dispatch_pending(self->wl2_display_) > 0) {
+    drain_count++;
+  }
+
+  return G_SOURCE_REMOVE;
 }
 
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,

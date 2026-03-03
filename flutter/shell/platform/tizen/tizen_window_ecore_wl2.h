@@ -129,6 +129,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   static gboolean HandleDisplayIO(GIOChannel* channel,
                                   GIOCondition condition,
                                   gpointer data);
+  static gboolean DispatchDisplayIO(gpointer data);
 
   static void HandleRegistryGlobal(void* data,
                                    wl_registry* registry,
@@ -327,6 +328,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   GIOChannel* display_io_channel_ = nullptr;
   guint display_io_watch_id_ = 0;
+  guint display_dispatch_source_id_ = 0;
+  bool display_io_pending_ = false;
 
   uint64_t perf_last_log_us_ = 0;
   uint32_t perf_pointer_motion_count_ = 0;
