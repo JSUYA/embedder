@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -97,6 +98,15 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
 
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
+}
+
+bool IsPerfDiagEnabled() {
+  static const char* env = std::getenv("FLUTTER_TIZEN_PERF_DIAG");
+  if (!env) {
+    return false;
+  }
+  return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' ||
+         env[0] == 'T';
 }
 
 }  // namespace
@@ -848,16 +858,44 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     return FALSE;
   }
 
+  const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
+
   if (condition & G_IO_IN) {
+    self->perf_io_in_count_++;
     if (wl_display_dispatch(self->wl2_display_) < 0) {
       FT_LOG(Error) << "wl_display_dispatch failed.";
       return FALSE;
     }
+    self->perf_dispatch_count_++;
   } else {
     wl_display_dispatch_pending(self->wl2_display_);
   }
 
   wl_display_flush(self->wl2_display_);
+
+  self->perf_dispatch_total_us_ +=
+      static_cast<uint64_t>(g_get_monotonic_time()) - begin_us;
+
+  if (IsPerfDiagEnabled()) {
+    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
+    if (self->perf_last_log_us_ == 0) {
+      self->perf_last_log_us_ = now_us;
+    }
+    if (now_us - self->perf_last_log_us_ >= 1000000ULL) {
+      const uint64_t avg_us = self->perf_dispatch_count_ == 0
+                                  ? 0
+                                  : self->perf_dispatch_total_us_ /
+                                        self->perf_dispatch_count_;
+      FT_LOG(Error) << "[PERF_DIAG][wl-io] in=" << self->perf_io_in_count_
+                    << " dispatch=" << self->perf_dispatch_count_
+                    << " avg_us=" << avg_us;
+      self->perf_io_in_count_ = 0;
+      self->perf_dispatch_count_ = 0;
+      self->perf_dispatch_total_us_ = 0;
+      self->perf_last_log_us_ = now_us;
+    }
+  }
+
   return TRUE;
 }
 

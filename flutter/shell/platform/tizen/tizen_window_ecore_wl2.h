@@ -325,6 +325,11 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   GIOChannel* display_io_channel_ = nullptr;
   guint display_io_watch_id_ = 0;
 
+  uint64_t perf_last_log_us_ = 0;
+  uint32_t perf_io_in_count_ = 0;
+  uint32_t perf_dispatch_count_ = 0;
+  uint64_t perf_dispatch_total_us_ = 0;
+
   uint32_t resource_id_ = 0;
 
 #ifdef TV_PROFILE
