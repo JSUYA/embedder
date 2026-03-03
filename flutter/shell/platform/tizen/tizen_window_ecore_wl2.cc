@@ -1144,11 +1144,10 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  // Coalesce motion events, but do not undercut a typical 60Hz render cadence.
-  // The previous 24ms hover interval effectively capped pointer-driven updates to
-  // ~41Hz, which shows up as a large FPS drop while moving the cursor.
-  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 16;
-  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 1.0;
+  // Aggressively coalesce hover-motion events to avoid pointer-event storms
+  // on low-power targets. Drag interactions remain high-rate for usability.
+  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 33;
+  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 3.0;
   const bool time_ready =
       (self->last_pointer_sent_time_ == 0) ||
       (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
