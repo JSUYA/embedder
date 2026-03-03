@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -34,6 +35,9 @@ namespace {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
 #define TEMP_DIAG_ECORE_WL2(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
+
+constexpr int kScrollDirectionVertical = WL_POINTER_AXIS_VERTICAL_SCROLL;
+constexpr int kScrollDirectionHorizontal = WL_POINTER_AXIS_HORIZONTAL_SCROLL;
 
 constexpr uint32_t kEcoreEventModifierShift = 0x0001;
 constexpr uint32_t kEcoreEventModifierCtrl = 0x0002;
@@ -94,6 +98,15 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
 
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
+}
+
+bool IsPerfDiagEnabled() {
+  static const char* env = std::getenv("FLUTTER_TIZEN_PERF_DIAG");
+  if (!env) {
+    return false;
+  }
+  return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' ||
+         env[0] == 'T';
 }
 
 }  // namespace
@@ -845,16 +858,62 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     return FALSE;
   }
 
-  if (condition & G_IO_IN) {
-    if (wl_display_dispatch(self->wl2_display_) < 0) {
-      FT_LOG(Error) << "wl_display_dispatch failed.";
+  if (!(condition & G_IO_IN)) {
+    return TRUE;
+  }
+
+  self->perf_diag_io_in_count_++;
+
+  const uint64_t dispatch_begin_us = static_cast<uint64_t>(g_get_monotonic_time());
+
+  // Wayland-recommended non-blocking read cycle.
+  if (wl_display_prepare_read(self->wl2_display_) == 0) {
+    self->perf_diag_prepare_ok_count_++;
+    wl_display_flush(self->wl2_display_);
+    if (wl_display_read_events(self->wl2_display_) < 0) {
+      wl_display_cancel_read(self->wl2_display_);
+      FT_LOG(Error) << "wl_display_read_events failed.";
       return FALSE;
     }
   } else {
+    self->perf_diag_prepare_busy_count_++;
     wl_display_dispatch_pending(self->wl2_display_);
   }
 
-  wl_display_flush(self->wl2_display_);
+  if (wl_display_dispatch_pending(self->wl2_display_) < 0) {
+    FT_LOG(Error) << "wl_display_dispatch_pending failed.";
+    return FALSE;
+  }
+
+  self->perf_diag_dispatch_count_++;
+  self->perf_diag_dispatch_total_us_ +=
+      static_cast<uint64_t>(g_get_monotonic_time()) - dispatch_begin_us;
+
+  if (IsPerfDiagEnabled()) {
+    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
+    if (self->perf_diag_last_log_us_ == 0) {
+      self->perf_diag_last_log_us_ = now_us;
+    }
+    if (now_us - self->perf_diag_last_log_us_ >= 1000000ULL) {
+      const uint64_t avg_dispatch_us =
+          self->perf_diag_dispatch_count_ == 0
+              ? 0
+              : self->perf_diag_dispatch_total_us_ /
+                    self->perf_diag_dispatch_count_;
+      FT_LOG(Error) << "[PERF_DIAG][wl] io_in=" << self->perf_diag_io_in_count_
+                    << " prep_ok=" << self->perf_diag_prepare_ok_count_
+                    << " prep_busy=" << self->perf_diag_prepare_busy_count_
+                    << " dispatch=" << self->perf_diag_dispatch_count_
+                    << " avg_us=" << avg_dispatch_us;
+      self->perf_diag_io_in_count_ = 0;
+      self->perf_diag_prepare_ok_count_ = 0;
+      self->perf_diag_prepare_busy_count_ = 0;
+      self->perf_diag_dispatch_count_ = 0;
+      self->perf_diag_dispatch_total_us_ = 0;
+      self->perf_diag_last_log_us_ = now_us;
+    }
+  }
+
   return TRUE;
 }
 
@@ -1027,10 +1086,6 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
           HandlePointerMotion,
           HandlePointerButton,
           HandlePointerAxis,
-          HandlePointerFrame,
-          HandlePointerAxisSource,
-          HandlePointerAxisStop,
-          HandlePointerAxisDiscrete,
       };
       wl_pointer_add_listener(self->pointer_, &kPointerListener, self);
     }
@@ -1142,12 +1197,31 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
     return;
   }
 
-  // Keep compositor cursor movement functional but avoid app-side pointer move
-  // dispatch to prevent cursor-move FPS collapse.
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
-  (void)pointer;
-  (void)time;
+
+  // Coalesce high-frequency motion events to reduce unnecessary frame churn
+  // on low-power targets while preserving interaction fidelity.
+  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
+  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
+  const bool time_ready =
+      (self->last_pointer_sent_time_ == 0) ||
+      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
+  const bool moved_enough =
+      (self->last_pointer_sent_x_ < 0.0) ||
+      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
+           kPointerMoveMinDelta) ||
+      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
+           kPointerMoveMinDelta);
+
+  if (self->view_delegate_ && time_ready && moved_enough) {
+    self->last_pointer_sent_x_ = self->pointer_x_;
+    self->last_pointer_sent_y_ = self->pointer_y_;
+    self->last_pointer_sent_time_ = time;
+    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
+                                        static_cast<size_t>(time),
+                                        kFlutterPointerDeviceKindMouse, 0);
+  }
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
@@ -1191,44 +1265,22 @@ void TizenWindowEcoreWl2::HandlePointerAxis(void* data,
                                             uint32_t time,
                                             uint32_t axis,
                                             wl_fixed_t value) {
-  (void)data;
-  (void)pointer;
-  (void)time;
-  (void)axis;
-  (void)value;
-}
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self || !self->view_delegate_) {
+    return;
+  }
 
-void TizenWindowEcoreWl2::HandlePointerFrame(void* data, wl_pointer* pointer) {
-  (void)data;
-  (void)pointer;
-}
+  double delta_x = 0.0;
+  double delta_y = 0.0;
+  if (axis == kScrollDirectionVertical) {
+    delta_y = wl_fixed_to_double(value);
+  } else if (axis == kScrollDirectionHorizontal) {
+    delta_x = wl_fixed_to_double(value);
+  }
 
-void TizenWindowEcoreWl2::HandlePointerAxisSource(void* data,
-                                                  wl_pointer* pointer,
-                                                  uint32_t axis_source) {
-  (void)data;
-  (void)pointer;
-  (void)axis_source;
-}
-
-void TizenWindowEcoreWl2::HandlePointerAxisStop(void* data,
-                                                wl_pointer* pointer,
-                                                uint32_t time,
-                                                uint32_t axis) {
-  (void)data;
-  (void)pointer;
-  (void)time;
-  (void)axis;
-}
-
-void TizenWindowEcoreWl2::HandlePointerAxisDiscrete(void* data,
-                                                    wl_pointer* pointer,
-                                                    uint32_t axis,
-                                                    int32_t discrete) {
-  (void)data;
-  (void)pointer;
-  (void)axis;
-  (void)discrete;
+  self->view_delegate_->OnScroll(self->pointer_x_, self->pointer_y_, delta_x,
+                                 delta_y, static_cast<size_t>(time),
+                                 kFlutterPointerDeviceKindMouse, 0);
 }
 
 void TizenWindowEcoreWl2::HandleKeyboardKeymap(void* data,

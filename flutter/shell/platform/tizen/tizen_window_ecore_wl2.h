@@ -186,18 +186,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                 uint32_t time,
                                 uint32_t axis,
                                 wl_fixed_t value);
-  static void HandlePointerFrame(void* data, wl_pointer* pointer);
-  static void HandlePointerAxisSource(void* data,
-                                      wl_pointer* pointer,
-                                      uint32_t axis_source);
-  static void HandlePointerAxisStop(void* data,
-                                    wl_pointer* pointer,
-                                    uint32_t time,
-                                    uint32_t axis);
-  static void HandlePointerAxisDiscrete(void* data,
-                                        wl_pointer* pointer,
-                                        uint32_t axis,
-                                        int32_t discrete);
 
   static void HandleKeyboardKeymap(void* data,
                                    wl_keyboard* keyboard,
@@ -323,6 +311,9 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   double pointer_x_ = 0.0;
   double pointer_y_ = 0.0;
+  double last_pointer_sent_x_ = -1.0;
+  double last_pointer_sent_y_ = -1.0;
+  uint32_t last_pointer_sent_time_ = 0;
   bool pointer_button_pressed_ = false;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
@@ -333,6 +324,13 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   GIOChannel* display_io_channel_ = nullptr;
   guint display_io_watch_id_ = 0;
+
+  uint64_t perf_diag_last_log_us_ = 0;
+  uint32_t perf_diag_io_in_count_ = 0;
+  uint32_t perf_diag_prepare_ok_count_ = 0;
+  uint32_t perf_diag_prepare_busy_count_ = 0;
+  uint32_t perf_diag_dispatch_count_ = 0;
+  uint64_t perf_diag_dispatch_total_us_ = 0;
 
   uint32_t resource_id_ = 0;
 
