@@ -186,6 +186,18 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                 uint32_t time,
                                 uint32_t axis,
                                 wl_fixed_t value);
+  static void HandlePointerFrame(void* data, wl_pointer* pointer);
+  static void HandlePointerAxisSource(void* data,
+                                      wl_pointer* pointer,
+                                      uint32_t axis_source);
+  static void HandlePointerAxisStop(void* data,
+                                    wl_pointer* pointer,
+                                    uint32_t time,
+                                    uint32_t axis);
+  static void HandlePointerAxisDiscrete(void* data,
+                                        wl_pointer* pointer,
+                                        uint32_t axis,
+                                        int32_t discrete);
 
   static void HandleKeyboardKeymap(void* data,
                                    wl_keyboard* keyboard,

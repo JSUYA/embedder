@@ -1030,6 +1030,10 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
           HandlePointerMotion,
           HandlePointerButton,
           HandlePointerAxis,
+          HandlePointerFrame,
+          HandlePointerAxisSource,
+          HandlePointerAxisStop,
+          HandlePointerAxisDiscrete,
       };
       wl_pointer_add_listener(self->pointer_, &kPointerListener, self);
     }
@@ -1225,6 +1229,39 @@ void TizenWindowEcoreWl2::HandlePointerAxis(void* data,
   self->view_delegate_->OnScroll(self->pointer_x_, self->pointer_y_, delta_x,
                                  delta_y, static_cast<size_t>(time),
                                  kFlutterPointerDeviceKindMouse, 0);
+}
+
+void TizenWindowEcoreWl2::HandlePointerFrame(void* data, wl_pointer* pointer) {
+  (void)data;
+  (void)pointer;
+}
+
+void TizenWindowEcoreWl2::HandlePointerAxisSource(void* data,
+                                                  wl_pointer* pointer,
+                                                  uint32_t axis_source) {
+  (void)data;
+  (void)pointer;
+  (void)axis_source;
+}
+
+void TizenWindowEcoreWl2::HandlePointerAxisStop(void* data,
+                                                wl_pointer* pointer,
+                                                uint32_t time,
+                                                uint32_t axis) {
+  (void)data;
+  (void)pointer;
+  (void)time;
+  (void)axis;
+}
+
+void TizenWindowEcoreWl2::HandlePointerAxisDiscrete(void* data,
+                                                    wl_pointer* pointer,
+                                                    uint32_t axis,
+                                                    int32_t discrete) {
+  (void)data;
+  (void)pointer;
+  (void)axis;
+  (void)discrete;
 }
 
 void TizenWindowEcoreWl2::HandleKeyboardKeymap(void* data,
