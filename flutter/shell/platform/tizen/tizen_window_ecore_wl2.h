@@ -175,6 +175,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                   uint32_t time,
                                   wl_fixed_t sx,
                                   wl_fixed_t sy);
+  static gboolean DispatchPointerMove(gpointer data);
   static void HandlePointerButton(void* data,
                                   wl_pointer* pointer,
                                   uint32_t serial,
@@ -315,6 +316,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   double last_pointer_sent_y_ = -1.0;
   uint32_t last_pointer_sent_time_ = 0;
   bool pointer_button_pressed_ = false;
+  bool pointer_move_pending_ = false;
+  guint pointer_move_source_id_ = 0;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
 

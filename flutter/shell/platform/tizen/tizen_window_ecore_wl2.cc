@@ -387,6 +387,12 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
     display_io_watch_id_ = 0;
   }
 
+  if (pointer_move_source_id_ != 0) {
+    g_source_remove(pointer_move_source_id_);
+    pointer_move_source_id_ = 0;
+    pointer_move_pending_ = false;
+  }
+
   if (display_io_channel_) {
     g_io_channel_unref(display_io_channel_);
     display_io_channel_ = nullptr;
@@ -1144,28 +1150,51 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  // Aggressively coalesce hover-motion events to avoid pointer-event storms
-  // on low-power targets. Drag interactions remain high-rate for usability.
-  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 33;
-  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 3.0;
-  const bool time_ready =
-      (self->last_pointer_sent_time_ == 0) ||
-      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
-  const bool moved_enough =
-      (self->last_pointer_sent_x_ < 0.0) ||
-      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
-           kPointerMoveMinDelta) ||
-      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
-           kPointerMoveMinDelta);
-
-  if (self->view_delegate_ && time_ready && moved_enough) {
-    self->last_pointer_sent_x_ = self->pointer_x_;
-    self->last_pointer_sent_y_ = self->pointer_y_;
-    self->last_pointer_sent_time_ = time;
-    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                        static_cast<size_t>(time),
-                                        kFlutterPointerDeviceKindMouse, 0);
+  // Keep pointer drag interactions responsive, but coalesce hover motion to one
+  // pending callback on the main loop. This prevents motion-event storms from
+  // stealing frame budget during cursor movement.
+  if (self->pointer_button_pressed_) {
+    if (self->view_delegate_) {
+      self->last_pointer_sent_x_ = self->pointer_x_;
+      self->last_pointer_sent_y_ = self->pointer_y_;
+      self->last_pointer_sent_time_ = time;
+      self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
+                                          static_cast<size_t>(time),
+                                          kFlutterPointerDeviceKindMouse, 0);
+    }
+    return;
   }
+
+  self->last_pointer_sent_time_ = time;
+  self->pointer_move_pending_ = true;
+  if (self->pointer_move_source_id_ == 0) {
+    self->pointer_move_source_id_ = g_idle_add(DispatchPointerMove, self);
+  }
+}
+
+gboolean TizenWindowEcoreWl2::DispatchPointerMove(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  self->pointer_move_source_id_ = 0;
+
+  if (!self->running_ || !self->view_delegate_ || !self->pointer_move_pending_) {
+    self->pointer_move_pending_ = false;
+    return G_SOURCE_REMOVE;
+  }
+
+  self->pointer_move_pending_ = false;
+  self->last_pointer_sent_x_ = self->pointer_x_;
+  self->last_pointer_sent_y_ = self->pointer_y_;
+
+  self->view_delegate_->OnPointerMove(
+      self->pointer_x_, self->pointer_y_,
+      static_cast<size_t>(self->last_pointer_sent_time_),
+      kFlutterPointerDeviceKindMouse, 0);
+
+  return G_SOURCE_REMOVE;
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
@@ -1188,6 +1217,17 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
 #endif
 
   self->last_input_serial_ = serial;
+
+  if (self->pointer_move_source_id_ != 0) {
+    g_source_remove(self->pointer_move_source_id_);
+    self->pointer_move_source_id_ = 0;
+  }
+  if (self->pointer_move_pending_) {
+    self->pointer_move_pending_ = false;
+    self->view_delegate_->OnPointerMove(
+        self->pointer_x_, self->pointer_y_, static_cast<size_t>(time),
+        kFlutterPointerDeviceKindMouse, 0);
+  }
 
   FlutterPointerMouseButtons flutter_button = ToFlutterPointerButton(button);
   if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
