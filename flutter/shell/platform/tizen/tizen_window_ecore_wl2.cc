@@ -1058,9 +1058,9 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
       static const wl_pointer_listener kPointerListener = {
           HandlePointerEnter,
           HandlePointerLeave,
-          HandlePointerMotion,
+          nullptr,  // drop high-frequency motion callback for perf
           HandlePointerButton,
-          HandlePointerAxis,
+          nullptr,  // drop axis callback for perf isolation
       };
       wl_pointer_add_listener(self->pointer_, &kPointerListener, self);
     }
@@ -1144,8 +1144,7 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
     }
   }
 
-  // Do not emit hover move on enter; this frequently triggers an immediate
-  // frame workload spike on some targets.
+  // Keep enter lightweight; avoid synthetic move dispatch here.
 }
 
 void TizenWindowEcoreWl2::HandlePointerLeave(void* data,
