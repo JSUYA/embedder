@@ -397,6 +397,12 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
     display_io_watch_id_ = 0;
   }
 
+  if (display_dispatch_source_id_ != 0) {
+    g_source_remove(display_dispatch_source_id_);
+    display_dispatch_source_id_ = 0;
+    display_io_pending_ = false;
+  }
+
   if (display_io_channel_) {
     g_io_channel_unref(display_io_channel_);
     display_io_channel_ = nullptr;
@@ -858,21 +864,54 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     return FALSE;
   }
 
-  const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
-
   if (condition & G_IO_IN) {
     self->perf_io_in_count_++;
-    if (wl_display_dispatch(self->wl2_display_) < 0) {
-      FT_LOG(Error) << "wl_display_dispatch failed.";
-      return FALSE;
+    self->display_io_pending_ = true;
+
+    // Batch high-frequency pointer traffic to avoid starving rendering.
+    if (self->display_dispatch_source_id_ == 0) {
+      constexpr guint kDispatchIntervalMs = 33;  // ~30Hz input processing
+      self->display_dispatch_source_id_ = g_timeout_add_full(
+          G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
+          nullptr);
     }
-    self->perf_dispatch_count_++;
-  } else {
-    wl_display_dispatch_pending(self->wl2_display_);
+  }
+
+  return TRUE;
+}
+
+gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_dispatch_source_id_ = 0;
+
+  if (!self->running_ || !self->wl2_display_ || !self->display_io_pending_) {
+    self->display_io_pending_ = false;
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_io_pending_ = false;
+
+  const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
+
+  if (wl_display_dispatch(self->wl2_display_) < 0) {
+    FT_LOG(Error) << "wl_display_dispatch failed.";
+    return G_SOURCE_REMOVE;
+  }
+
+  // Drain a small bounded amount to prevent backlog growth.
+  for (int i = 0; i < 3; ++i) {
+    if (wl_display_dispatch_pending(self->wl2_display_) <= 0) {
+      break;
+    }
   }
 
   wl_display_flush(self->wl2_display_);
 
+  self->perf_dispatch_count_++;
   self->perf_dispatch_total_us_ +=
       static_cast<uint64_t>(g_get_monotonic_time()) - begin_us;
 
@@ -896,7 +935,7 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     }
   }
 
-  return TRUE;
+  return G_SOURCE_REMOVE;
 }
 
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
