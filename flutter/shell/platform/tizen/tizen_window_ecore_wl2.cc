@@ -880,6 +880,10 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
       FT_LOG(Error) << "wl_display_dispatch failed.";
       return FALSE;
     }
+    // Drain already-queued events in one callback to reduce watch callback
+    // churn during high-frequency pointer traffic.
+    while (wl_display_dispatch_pending(self->wl2_display_) > 0) {
+    }
   } else {
     self->perf_display_io_other_count_++;
     wl_display_dispatch_pending(self->wl2_display_);
@@ -1194,9 +1198,9 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_y_ = wl_fixed_to_double(sy);
   self->perf_pointer_motion_count_++;
 
-  // Keep pointer drag interactions responsive, but coalesce hover motion to one
-  // pending callback on the main loop. This prevents motion-event storms from
-  // stealing frame budget during cursor movement.
+  // Keep pointer drag interactions responsive.
+  // NOTE: Hover motion is temporarily suppressed to isolate severe FPS drops
+  // observed during cursor movement on wl rework builds.
   if (self->pointer_button_pressed_) {
     if (self->view_delegate_) {
       self->last_pointer_sent_x_ = self->pointer_x_;
@@ -1210,18 +1214,9 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
     return;
   }
 
-  if (IsHoverMoveDisabledForPerfProbe()) {
-    return;
-  }
-
-  self->last_pointer_sent_time_ = time;
-  self->pointer_move_pending_ = true;
-  if (self->pointer_move_source_id_ == 0) {
-    constexpr guint kHoverMoveDispatchMs = 16;
-    self->pointer_move_source_id_ = g_timeout_add_full(
-        G_PRIORITY_DEFAULT, kHoverMoveDispatchMs, DispatchPointerMove, self,
-        nullptr);
-  }
+  // Temporarily drop hover move dispatches entirely; cursor image is handled by
+  // the compositor and button interactions remain intact.
+  return;
 }
 
 gboolean TizenWindowEcoreWl2::DispatchPointerMove(gpointer data) {
