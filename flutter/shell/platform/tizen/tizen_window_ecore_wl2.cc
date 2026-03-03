@@ -383,6 +383,12 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
     display_io_watch_id_ = 0;
   }
 
+  if (display_dispatch_source_id_ != 0) {
+    g_source_remove(display_dispatch_source_id_);
+    display_dispatch_source_id_ = 0;
+    display_io_pending_ = false;
+  }
+
   if (display_io_channel_) {
     g_io_channel_unref(display_io_channel_);
     display_io_channel_ = nullptr;
@@ -845,21 +851,45 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
-    if (wl_display_dispatch(self->wl2_display_) < 0) {
-      FT_LOG(Error) << "wl_display_dispatch failed.";
-      return FALSE;
-    }
-    // Drain a bounded number of queued events to reduce callback churn.
-    for (int i = 0; i < 8; ++i) {
-      if (wl_display_dispatch_pending(self->wl2_display_) <= 0) {
-        break;
-      }
+    self->display_io_pending_ = true;
+    if (self->display_dispatch_source_id_ == 0) {
+      constexpr guint kDispatchIntervalMs = 16;
+      self->display_dispatch_source_id_ = g_timeout_add_full(
+          G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
+          nullptr);
     }
   }
 
-  // Do not flush on every input callback; explicit flushes are issued at
-  // state-changing call sites.
   return TRUE;
+}
+
+gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_dispatch_source_id_ = 0;
+
+  if (!self->running_ || !self->wl2_display_ || !self->display_io_pending_) {
+    self->display_io_pending_ = false;
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_io_pending_ = false;
+
+  if (wl_display_dispatch(self->wl2_display_) < 0) {
+    FT_LOG(Error) << "wl_display_dispatch failed.";
+    return G_SOURCE_REMOVE;
+  }
+
+  for (int i = 0; i < 8; ++i) {
+    if (wl_display_dispatch_pending(self->wl2_display_) <= 0) {
+      break;
+    }
+  }
+
+  return G_SOURCE_REMOVE;
 }
 
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
@@ -1022,9 +1052,7 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
     return;
   }
 
-  // Aggressive perf mode: disable app-side wl_pointer subscription entirely
-  // to eliminate cursor-move induced frame drops while isolating root cause.
-  if (false && (capabilities & WL_SEAT_CAPABILITY_POINTER)) {
+  if (capabilities & WL_SEAT_CAPABILITY_POINTER) {
     if (!self->pointer_) {
       self->pointer_ = wl_seat_get_pointer(seat);
       static const wl_pointer_listener kPointerListener = {
