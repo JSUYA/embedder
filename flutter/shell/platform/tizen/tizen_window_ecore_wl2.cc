@@ -863,7 +863,10 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     wl_display_dispatch_pending(self->wl2_display_);
   }
 
-  wl_display_flush(self->wl2_display_);
+  // Avoid unconditional flush on every readable display event. During pointer
+  // motion this path can be called at very high frequency and repeated flush()
+  // syscalls steal frame budget. Explicit flushes are already done at request
+  // submission points (surface commits, state updates).
   return TRUE;
 }
 
@@ -1168,7 +1171,10 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->last_pointer_sent_time_ = time;
   self->pointer_move_pending_ = true;
   if (self->pointer_move_source_id_ == 0) {
-    self->pointer_move_source_id_ = g_idle_add(DispatchPointerMove, self);
+    constexpr guint kHoverMoveDispatchMs = 16;
+    self->pointer_move_source_id_ = g_timeout_add_full(
+        G_PRIORITY_DEFAULT, kHoverMoveDispatchMs, DispatchPointerMove, self,
+        nullptr);
   }
 }
 
