@@ -95,10 +95,6 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
   return XKB_KEY_NoSymbol;
 }
 
-size_t GetCurrentTimeMillis() {
-  return static_cast<size_t>(g_get_monotonic_time() / 1000);
-}
-
 }  // namespace
 
 TizenWindowEcoreWl2::TizenWindowEcoreWl2(TizenGeometry geometry,
