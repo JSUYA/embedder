@@ -851,9 +851,15 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
-    // Emergency perf isolation: do not dispatch Wayland client events from this
-    // watch callback. This intentionally sacrifices app-side pointer/keyboard
-    // updates to verify whether dispatch churn is the root cause of FPS drops.
+    // Low-rate dispatch mode: keep minimal input/cursor functionality while
+    // avoiding high-frequency dispatch churn during pointer movement.
+    self->display_io_pending_ = true;
+    if (self->display_dispatch_source_id_ == 0) {
+      constexpr guint kDispatchIntervalMs = 66;
+      self->display_dispatch_source_id_ = g_timeout_add_full(
+          G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
+          nullptr);
+    }
     return TRUE;
   }
 
@@ -880,12 +886,7 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
     return G_SOURCE_REMOVE;
   }
 
-  for (int i = 0; i < 8; ++i) {
-    if (wl_display_dispatch_pending(self->wl2_display_) <= 0) {
-      break;
-    }
-  }
-
+  // Do not drain aggressively; one dispatch tick at a low rate is intentional.
   return G_SOURCE_REMOVE;
 }
 
