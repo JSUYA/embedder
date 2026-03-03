@@ -129,7 +129,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   static gboolean HandleDisplayIO(GIOChannel* channel,
                                   GIOCondition condition,
                                   gpointer data);
-  static gboolean DispatchDisplayIO(gpointer data);
 
   static void HandleRegistryGlobal(void* data,
                                    wl_registry* registry,
@@ -288,7 +287,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_surface* cursor_surface_ = nullptr;
   wl_cursor_theme* cursor_theme_ = nullptr;
   wl_cursor* default_cursor_ = nullptr;
-  bool cursor_applied_ = false;
 
   tizen_policy* tizen_policy_ = nullptr;
   tizen_surface* tizen_surface_ = nullptr;
@@ -313,6 +311,9 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   double pointer_x_ = 0.0;
   double pointer_y_ = 0.0;
+  double last_pointer_sent_x_ = -1.0;
+  double last_pointer_sent_y_ = -1.0;
+  uint32_t last_pointer_sent_time_ = 0;
   bool pointer_button_pressed_ = false;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
@@ -323,15 +324,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   GIOChannel* display_io_channel_ = nullptr;
   guint display_io_watch_id_ = 0;
-  guint display_dispatch_source_id_ = 0;
-  bool display_io_pending_ = false;
-
-  uint64_t perf_last_log_us_ = 0;
-  uint32_t perf_io_in_count_ = 0;
-  uint32_t perf_dispatch_count_ = 0;
-  uint64_t perf_dispatch_total_us_ = 0;
-
-  bool pointer_motion_pending_ = false;
 
   uint32_t resource_id_ = 0;
 

@@ -5,10 +5,8 @@
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
 
 #include <EGL/eglext.h>
-#include <cstdlib>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-#include <glib.h>
 #ifdef NUI_SUPPORT
 #include <dali/devel-api/adaptor-framework/native-image-source-queue.h>
 #endif
@@ -24,19 +22,6 @@ namespace flutter {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
 #define TEMP_DIAG_EGL(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
-
-namespace {
-
-bool IsPerfDiagEnabled() {
-  static const char* env = std::getenv("FLUTTER_TIZEN_PERF_DIAG");
-  if (!env) {
-    return false;
-  }
-  return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' ||
-         env[0] == 'T';
-}
-
-}  // namespace
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
                                    bool enable_impeller)
@@ -331,36 +316,14 @@ bool TizenRendererEgl::OnPresent() {
     return false;
   }
 
-  const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
-
   if (eglSwapBuffers(egl_display_, egl_surface_) != EGL_TRUE) {
     PrintEGLError();
     FT_LOG(Error) << "Could not swap EGL buffers.";
     return false;
   }
 
-  if (IsPerfDiagEnabled()) {
-    static uint64_t s_last_log_us = 0;
-    static uint64_t s_total_us = 0;
-    static uint32_t s_count = 0;
-
-    s_total_us += static_cast<uint64_t>(g_get_monotonic_time()) - begin_us;
-    s_count++;
-
-    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
-    if (s_last_log_us == 0) {
-      s_last_log_us = now_us;
-    }
-    if (now_us - s_last_log_us >= 1000000ULL) {
-      const uint64_t avg_us = s_count == 0 ? 0 : s_total_us / s_count;
-      FT_LOG(Error) << "[PERF_DIAG][egl] present_count=" << s_count
-                    << " avg_swap_us=" << avg_us;
-      s_total_us = 0;
-      s_count = 0;
-      s_last_log_us = now_us;
-    }
-  }
-
+  // [TEMP_DIAG_REMOVE] Avoid per-frame logging; it severely impacts pointer
+  // responsiveness on low-power targets.
   return true;
 }
 

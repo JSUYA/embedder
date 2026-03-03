@@ -18,7 +18,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -98,15 +97,6 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
 
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
-}
-
-bool IsPerfDiagEnabled() {
-  static const char* env = std::getenv("FLUTTER_TIZEN_PERF_DIAG");
-  if (!env) {
-    return false;
-  }
-  return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' ||
-         env[0] == 'T';
 }
 
 }  // namespace
@@ -395,12 +385,6 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
   if (display_io_watch_id_ != 0) {
     g_source_remove(display_io_watch_id_);
     display_io_watch_id_ = 0;
-  }
-
-  if (display_dispatch_source_id_ != 0) {
-    g_source_remove(display_dispatch_source_id_);
-    display_dispatch_source_id_ = 0;
-    display_io_pending_ = false;
   }
 
   if (display_io_channel_) {
@@ -865,93 +849,16 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
-    self->perf_io_in_count_++;
-
-    if (!self->display_io_pending_) {
-      self->display_io_pending_ = true;
-
-      if (self->display_dispatch_source_id_ == 0) {
-        constexpr guint kDispatchIntervalMs = 16;  // ~60Hz input processing
-        self->display_dispatch_source_id_ = g_timeout_add_full(
-            G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
-            nullptr);
-      }
+    if (wl_display_dispatch(self->wl2_display_) < 0) {
+      FT_LOG(Error) << "wl_display_dispatch failed.";
+      return FALSE;
     }
-
-    // Remove this watch instance immediately (return FALSE) and re-arm from
-    // DispatchDisplayIO. This prevents G_IO_IN callback storms.
-    self->display_io_watch_id_ = 0;
-    return FALSE;
-  }
-
-  return TRUE;
-}
-
-gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self) {
-    return G_SOURCE_REMOVE;
-  }
-
-  self->display_dispatch_source_id_ = 0;
-
-  if (!self->running_ || !self->wl2_display_ || !self->display_io_pending_) {
-    self->display_io_pending_ = false;
-    return G_SOURCE_REMOVE;
-  }
-
-  self->display_io_pending_ = false;
-
-  // Re-arm IO watch now that the pending batch is being serviced.
-  if (self->display_io_watch_id_ == 0 && self->display_io_channel_) {
-    self->display_io_watch_id_ = g_io_add_watch(
-        self->display_io_channel_,
-        static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL),
-        HandleDisplayIO, self);
-  }
-
-  const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
-
-  // Critical: wl_display_dispatch() can block and consume ~25-40ms per call
-  // on this target under cursor movement. Use pending-only dispatch here.
-  if (wl_display_dispatch_pending(self->wl2_display_) < 0) {
-    FT_LOG(Error) << "wl_display_dispatch_pending failed.";
-    return G_SOURCE_REMOVE;
+  } else {
+    wl_display_dispatch_pending(self->wl2_display_);
   }
 
   wl_display_flush(self->wl2_display_);
-
-  // Hard guard: do not forward hover move events to Flutter while we stabilize
-  // cursor-move FPS regression. Keep only compositor cursor updates.
-  if (self->pointer_motion_pending_) {
-    self->pointer_motion_pending_ = false;
-  }
-
-  self->perf_dispatch_count_++;
-  self->perf_dispatch_total_us_ +=
-      static_cast<uint64_t>(g_get_monotonic_time()) - begin_us;
-
-  if (IsPerfDiagEnabled()) {
-    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
-    if (self->perf_last_log_us_ == 0) {
-      self->perf_last_log_us_ = now_us;
-    }
-    if (now_us - self->perf_last_log_us_ >= 1000000ULL) {
-      const uint64_t avg_us = self->perf_dispatch_count_ == 0
-                                  ? 0
-                                  : self->perf_dispatch_total_us_ /
-                                        self->perf_dispatch_count_;
-      FT_LOG(Error) << "[PERF_DIAG][wl-io] in=" << self->perf_io_in_count_
-                    << " dispatch=" << self->perf_dispatch_count_
-                    << " avg_us=" << avg_us;
-      self->perf_io_in_count_ = 0;
-      self->perf_dispatch_count_ = 0;
-      self->perf_dispatch_total_us_ = 0;
-      self->perf_last_log_us_ = now_us;
-    }
-  }
-
-  return G_SOURCE_REMOVE;
+  return TRUE;
 }
 
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
@@ -1192,7 +1099,7 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  if (self->default_cursor_ && self->cursor_surface_ && !self->cursor_applied_) {
+  if (self->default_cursor_ && self->cursor_surface_) {
     wl_cursor_image* image = self->default_cursor_->images[0];
     if (image) {
       wl_buffer* buffer = wl_cursor_image_get_buffer(image);
@@ -1202,8 +1109,7 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
       wl_surface_damage(self->cursor_surface_, 0, 0, image->width,
                         image->height);
       wl_surface_commit(self->cursor_surface_);
-      // Avoid forcing immediate flush on pointer-enter path.
-      self->cursor_applied_ = true;
+      wl_display_flush(self->wl2_display_);
     }
   }
 
@@ -1223,7 +1129,6 @@ void TizenWindowEcoreWl2::HandlePointerLeave(void* data,
     return;
   }
   self->last_input_serial_ = serial;
-  self->cursor_applied_ = false;
 }
 
 void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
@@ -1238,12 +1143,29 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
 
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
-  self->pointer_motion_pending_ = true;
 
-  // Do not push high-frequency move events immediately. They are emitted at a
-  // controlled rate from DispatchDisplayIO.
-  (void)pointer;
-  (void)time;
+  // Coalesce high-frequency motion events to reduce unnecessary frame churn
+  // on low-power targets while preserving interaction fidelity.
+  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
+  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
+  const bool time_ready =
+      (self->last_pointer_sent_time_ == 0) ||
+      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
+  const bool moved_enough =
+      (self->last_pointer_sent_x_ < 0.0) ||
+      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
+           kPointerMoveMinDelta) ||
+      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
+           kPointerMoveMinDelta);
+
+  if (self->view_delegate_ && time_ready && moved_enough) {
+    self->last_pointer_sent_x_ = self->pointer_x_;
+    self->last_pointer_sent_y_ = self->pointer_y_;
+    self->last_pointer_sent_time_ = time;
+    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
+                                        static_cast<size_t>(time),
+                                        kFlutterPointerDeviceKindMouse, 0);
+  }
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
