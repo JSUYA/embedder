@@ -29,9 +29,6 @@
 
 namespace flutter {
 
-// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_ENGINE(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
-
 namespace {
 
 // Unique number associated with platform tasks.
@@ -112,8 +109,6 @@ std::unique_ptr<TizenRenderer> FlutterTizenEngine::CreateRenderer(
 }
 
 bool FlutterTizenEngine::RunEngine() {
-  TEMP_DIAG_ENGINE("RunEngine begin. engine=" << engine_ << " renderer="
-                   << renderer_.get() << " headed=" << IsHeaded());
   if (engine_ != nullptr) {
     FT_LOG(Error) << "The engine has already started.";
     return false;
@@ -233,8 +228,6 @@ bool FlutterTizenEngine::RunEngine() {
                   << result;
     return false;
   }
-
-  TEMP_DIAG_ENGINE("RunEngine success. handle=" << engine_);
 
   internal_plugin_registrar_ =
       std::make_unique<PluginRegistrar>(plugin_registrar_.get());
@@ -365,12 +358,6 @@ void FlutterTizenEngine::SendWindowMetrics(int32_t x,
                                            int32_t width,
                                            int32_t height,
                                            double pixel_ratio) {
-  // Native callbacks can race with startup/teardown; avoid calling into the
-  // embedder with an invalid engine handle.
-  if (!engine_) {
-    return;
-  }
-
   FlutterWindowMetricsEvent event = {};
   event.struct_size = sizeof(FlutterWindowMetricsEvent);
   event.left = static_cast<size_t>(x);

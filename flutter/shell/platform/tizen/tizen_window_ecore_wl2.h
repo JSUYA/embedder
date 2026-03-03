@@ -7,7 +7,6 @@
 
 #include <glib.h>
 #include <wayland-client.h>
-#include <wayland-cursor.h>
 #include <wayland-egl.h>
 #include <xkbcommon/xkbcommon.h>
 
@@ -269,13 +268,10 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_compositor* compositor_ = nullptr;
   wl_surface* wl2_surface_ = nullptr;
   wl_egl_window* wl_egl_window_ = nullptr;
-  void* external_egl_window_ = nullptr;
 
   xdg_wm_base* xdg_wm_base_ = nullptr;
   xdg_surface* xdg_surface_ = nullptr;
   xdg_toplevel* xdg_toplevel_ = nullptr;
-  wl_shell* wl_shell_ = nullptr;
-  wl_shell_surface* wl_shell_surface_ = nullptr;
 
   wl_seat* seat_ = nullptr;
   wl_pointer* pointer_ = nullptr;
@@ -283,10 +279,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_touch* touch_ = nullptr;
   wl_output* output_ = nullptr;
   wl_data_device_manager* data_device_manager_ = nullptr;
-  wl_shm* shm_ = nullptr;
-  wl_surface* cursor_surface_ = nullptr;
-  wl_cursor_theme* cursor_theme_ = nullptr;
-  wl_cursor* default_cursor_ = nullptr;
 
   tizen_policy* tizen_policy_ = nullptr;
   tizen_surface* tizen_surface_ = nullptr;
@@ -311,10 +303,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   double pointer_x_ = 0.0;
   double pointer_y_ = 0.0;
-  double last_pointer_sent_x_ = -1.0;
-  double last_pointer_sent_y_ = -1.0;
-  uint32_t last_pointer_sent_time_ = 0;
-  bool pointer_button_pressed_ = false;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
 

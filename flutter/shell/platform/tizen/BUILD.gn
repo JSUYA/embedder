@@ -71,6 +71,7 @@ template("embedder") {
       "channels/app_control_channel.cc",
       "channels/feedback_manager.cc",
       "channels/input_device_channel.cc",
+      "channels/input_panel_channel.cc",
       "channels/key_mapping.cc",
       "channels/keyboard_channel.cc",
       "channels/lifecycle_channel.cc",
@@ -124,7 +125,6 @@ template("embedder") {
       "tizen-extension-client",
       "vconf",
       "wayland-client",
-      "wayland-cursor",
       "wayland-egl",
       "xdg-shell-client",
       "xkbcommon",
@@ -132,7 +132,8 @@ template("embedder") {
       "GLESv2",
     ]
 
-    if (target_name == "flutter_tizen_common") {
+    if (target_name == "flutter_tizen_common" ||
+        target_name == "flutter_tizen_common_experimental") {
       sources += [ "channels/tizen_shell.cc" ]
 
       libs += [
@@ -143,6 +144,20 @@ template("embedder") {
 
     defines += invoker.defines
     defines += [ "FLUTTER_ENGINE_NO_PROTOTYPES" ]
+
+    if (target_name == "flutter_tizen_mobile_experimental" ||
+        target_name == "flutter_tizen_tv_experimental" ||
+        target_name == "flutter_tizen_common_experimental") {
+      defines += [ "FLUTTER_TIZEN_EXPERIMENTAL" ]
+      sources += [
+        "external_texture_pixel_vulkan.cc",
+        "external_texture_surface_vulkan.cc",
+        "external_texture_surface_vulkan_buffer.cc",
+        "external_texture_surface_vulkan_buffer_dma.cc",
+        "tizen_renderer_vulkan.cc",
+      ]
+      deps += [ "//flutter/third_party/volk" ]
+    }
 
     if (api_version != "6.0") {
       sources += [
@@ -178,8 +193,9 @@ template("embedder") {
       "//flutter/shell/platform/common:common_cpp",
       "//flutter/shell/platform/common:common_cpp_accessibility",
       "//flutter/shell/platform/common:common_cpp_input",
+      "//flutter/shell/platform/common:common_cpp_isolate_scope",
       "//flutter/shell/platform/common:common_cpp_library_headers",
-      "//flutter/shell/platform/common/client_wrapper:client_wrapper",
+      "//flutter/shell/platform/common/client_wrapper",
       "//flutter/shell/platform/embedder:embedder_headers",
       "//third_party/rapidjson",
     ]
@@ -192,13 +208,31 @@ embedder("flutter_tizen_mobile") {
   defines = [ "MOBILE_PROFILE" ]
 }
 
+embedder("flutter_tizen_mobile_experimental") {
+  target_type = "shared_library"
+
+  defines = [ "MOBILE_PROFILE" ]
+}
+
 embedder("flutter_tizen_tv") {
   target_type = "shared_library"
 
   defines = [ "TV_PROFILE" ]
 }
 
+embedder("flutter_tizen_tv_experimental") {
+  target_type = "shared_library"
+
+  defines = [ "TV_PROFILE" ]
+}
+
 embedder("flutter_tizen_common") {
+  target_type = "shared_library"
+
+  defines = [ "COMMON_PROFILE" ]
+}
+
+embedder("flutter_tizen_common_experimental") {
   target_type = "shared_library"
 
   defines = [ "COMMON_PROFILE" ]
@@ -229,7 +263,7 @@ executable("flutter_tizen_unittests") {
     ":flutter_tizen_source",
     "//flutter/shell/platform/common:common_cpp",
     "//flutter/shell/platform/common:common_cpp_accessibility",
-    "//flutter/shell/platform/common/client_wrapper:client_wrapper",
+    "//flutter/shell/platform/common/client_wrapper",
     "//third_party/googletest:gtest_main",
     "//third_party/rapidjson",
   ]
@@ -248,8 +282,11 @@ copy("publish_headers_tizen") {
 group("flutter_tizen") {
   deps = [
     ":flutter_tizen_common",
+    ":flutter_tizen_common_experimental",
     ":flutter_tizen_mobile",
+    ":flutter_tizen_mobile_experimental",
     ":flutter_tizen_tv",
+    ":flutter_tizen_tv_experimental",
     ":publish_cpp_client_wrapper",
     ":publish_headers_tizen",
   ]
