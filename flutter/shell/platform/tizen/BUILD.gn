@@ -125,6 +125,7 @@ template("embedder") {
       "tizen-extension-client",
       "vconf",
       "wayland-client",
+      "wayland-cursor",
       "wayland-egl",
       "xdg-shell-client",
       "xkbcommon",
