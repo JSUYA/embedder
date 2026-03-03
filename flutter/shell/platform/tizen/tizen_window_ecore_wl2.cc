@@ -35,9 +35,6 @@ namespace {
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
 #define TEMP_DIAG_ECORE_WL2(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
-constexpr int kScrollDirectionVertical = WL_POINTER_AXIS_VERTICAL_SCROLL;
-constexpr int kScrollDirectionHorizontal = WL_POINTER_AXIS_HORIZONTAL_SCROLL;
-
 constexpr uint32_t kEcoreEventModifierShift = 0x0001;
 constexpr uint32_t kEcoreEventModifierCtrl = 0x0002;
 constexpr uint32_t kEcoreEventModifierAlt = 0x0004;
