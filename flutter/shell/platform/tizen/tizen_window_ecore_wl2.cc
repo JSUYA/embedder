@@ -870,13 +870,6 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     if (!self->display_io_pending_) {
       self->display_io_pending_ = true;
 
-      // Temporarily detach the watch while work is pending to prevent callback
-      // storms (thousands/sec) from starving rendering.
-      if (self->display_io_watch_id_ != 0) {
-        g_source_remove(self->display_io_watch_id_);
-        self->display_io_watch_id_ = 0;
-      }
-
       if (self->display_dispatch_source_id_ == 0) {
         constexpr guint kDispatchIntervalMs = 16;  // ~60Hz input processing
         self->display_dispatch_source_id_ = g_timeout_add_full(
@@ -884,6 +877,11 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
             nullptr);
       }
     }
+
+    // Remove this watch instance immediately (return FALSE) and re-arm from
+    // DispatchDisplayIO. This prevents G_IO_IN callback storms.
+    self->display_io_watch_id_ = 0;
+    return FALSE;
   }
 
   return TRUE;
