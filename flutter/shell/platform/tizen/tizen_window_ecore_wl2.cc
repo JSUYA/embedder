@@ -18,7 +18,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -98,20 +97,6 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
 
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
-}
-
-bool IsEnvEnabled(const char* key) {
-  const char* v = std::getenv(key);
-  if (!v) {
-    return false;
-  }
-  return v[0] == '1' || v[0] == 'y' || v[0] == 'Y' || v[0] == 't' ||
-         v[0] == 'T';
-}
-
-bool IsPerfDiagEnabled() {
-  static const bool kEnabled = IsEnvEnabled("FLUTTER_TIZEN_PERF_DIAG");
-  return kEnabled;
 }
 
 }  // namespace
@@ -376,11 +361,17 @@ void TizenWindowEcoreWl2::EnableCursor() {
 typedef enum _MouseSupport { DISABLE = 0, ENABLE } MouseSupport;
 typedef enum _Device_Type { MOUSE_DEVICE = 3, TOUCH_DEVICE } Device_Type;
 
-void TizenWindowEcoreWl2::SetPointingDeviceSupport() {}
+void TizenWindowEcoreWl2::SetPointingDeviceSupport() {
+  FT_LOG(Info) << "SetPointingDeviceSupport is not available without Ecore.";
+}
 
-void TizenWindowEcoreWl2::SetFloatingMenuSupport() {}
+void TizenWindowEcoreWl2::SetFloatingMenuSupport() {
+  FT_LOG(Info) << "SetFloatingMenuSupport is not available without Ecore.";
+}
 
-void TizenWindowEcoreWl2::ShowUnsupportedToast() {}
+void TizenWindowEcoreWl2::ShowUnsupportedToast() {
+  FT_LOG(Info) << "ShowUnsupportedToast is not available without Ecore.";
+}
 #endif
 
 void TizenWindowEcoreWl2::RegisterEventHandlers() {
@@ -394,18 +385,6 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
   if (display_io_watch_id_ != 0) {
     g_source_remove(display_io_watch_id_);
     display_io_watch_id_ = 0;
-  }
-
-  if (display_dispatch_source_id_ != 0) {
-    g_source_remove(display_dispatch_source_id_);
-    display_dispatch_source_id_ = 0;
-    display_io_pending_ = false;
-  }
-
-  if (pointer_move_source_id_ != 0) {
-    g_source_remove(pointer_move_source_id_);
-    pointer_move_source_id_ = 0;
-    pointer_move_pending_ = false;
   }
 
   if (display_io_channel_) {
@@ -652,7 +631,10 @@ uint32_t TizenWindowEcoreWl2::GetResourceId() {
 }
 
 void TizenWindowEcoreWl2::SetPreferredOrientations(
-    const std::vector<int>& rotations) {}
+    const std::vector<int>& rotations) {
+  FT_LOG(Info)
+      << "SetPreferredOrientations is not implemented by direct Wayland API.";
+}
 
 void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
   if (!tizen_keyrouter_ || !wl2_surface_) {
@@ -696,7 +678,10 @@ void TizenWindowEcoreWl2::Show() {
   wl_display_flush(wl2_display_);
 }
 
-void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {}
+void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {
+  FT_LOG(Info) << "UpdateFlutterCursor is not supported without Ecore: "
+               << kind;
+}
 
 void TizenWindowEcoreWl2::SetTizenPolicyNotificationLevel(int level) {
   if (tizen_policy_ && wl2_surface_) {
@@ -864,71 +849,16 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
-    if (self->display_io_pending_) {
-      return TRUE;
-    }
-    self->perf_display_io_in_count_++;
-    self->display_io_pending_ = true;
-    if (self->display_dispatch_source_id_ == 0) {
-      constexpr guint kDisplayDispatchIntervalMs = 16;
-      self->display_dispatch_source_id_ = g_timeout_add_full(
-          G_PRIORITY_DEFAULT, kDisplayDispatchIntervalMs, DispatchDisplayIO,
-          self, nullptr);
+    if (wl_display_dispatch(self->wl2_display_) < 0) {
+      FT_LOG(Error) << "wl_display_dispatch failed.";
+      return FALSE;
     }
   } else {
-    self->perf_display_io_other_count_++;
+    wl_display_dispatch_pending(self->wl2_display_);
   }
 
-  if (IsPerfDiagEnabled()) {
-    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
-    if (self->perf_last_log_us_ == 0) {
-      self->perf_last_log_us_ = now_us;
-    }
-    if (now_us - self->perf_last_log_us_ >= 1000000ULL) {
-      FT_LOG(Info) << "[PERF_DIAG][wl2] motion=" << self->perf_pointer_motion_count_
-                   << " dispatch=" << self->perf_pointer_dispatch_count_
-                   << " io_in=" << self->perf_display_io_in_count_
-                   << " io_other=" << self->perf_display_io_other_count_;
-      self->perf_pointer_motion_count_ = 0;
-      self->perf_pointer_dispatch_count_ = 0;
-      self->perf_display_io_in_count_ = 0;
-      self->perf_display_io_other_count_ = 0;
-      self->perf_last_log_us_ = now_us;
-    }
-  }
-
-  return TRUE;
-}
-
-gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self) {
-    return G_SOURCE_REMOVE;
-  }
-
-  self->display_dispatch_source_id_ = 0;
-
-  if (!self->running_ || !self->wl2_display_ || !self->display_io_pending_) {
-    self->display_io_pending_ = false;
-    return G_SOURCE_REMOVE;
-  }
-
-  self->display_io_pending_ = false;
-
-  if (wl_display_dispatch(self->wl2_display_) < 0) {
-    FT_LOG(Error) << "wl_display_dispatch failed.";
-    return G_SOURCE_REMOVE;
-  }
-
-  int drain_count = 0;
-  while (drain_count < 16 && wl_display_dispatch_pending(self->wl2_display_) > 0) {
-    drain_count++;
-  }
-
-  // Opportunistically flush batched client requests once per dispatch tick.
   wl_display_flush(self->wl2_display_);
-
-  return G_SOURCE_REMOVE;
+  return TRUE;
 }
 
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
@@ -1213,53 +1143,29 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
 
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
-  self->perf_pointer_motion_count_++;
 
-  // Keep pointer drag interactions responsive.
-  // NOTE: Hover motion is temporarily suppressed to isolate severe FPS drops
-  // observed during cursor movement on wl rework builds.
-  if (self->pointer_button_pressed_) {
-    if (self->view_delegate_) {
-      self->last_pointer_sent_x_ = self->pointer_x_;
-      self->last_pointer_sent_y_ = self->pointer_y_;
-      self->last_pointer_sent_time_ = time;
-      self->perf_pointer_dispatch_count_++;
-      self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                          static_cast<size_t>(time),
-                                          kFlutterPointerDeviceKindMouse, 0);
-    }
-    return;
+  // Coalesce high-frequency motion events to reduce unnecessary frame churn
+  // on low-power targets while preserving interaction fidelity.
+  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
+  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
+  const bool time_ready =
+      (self->last_pointer_sent_time_ == 0) ||
+      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
+  const bool moved_enough =
+      (self->last_pointer_sent_x_ < 0.0) ||
+      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
+           kPointerMoveMinDelta) ||
+      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
+           kPointerMoveMinDelta);
+
+  if (self->view_delegate_ && time_ready && moved_enough) {
+    self->last_pointer_sent_x_ = self->pointer_x_;
+    self->last_pointer_sent_y_ = self->pointer_y_;
+    self->last_pointer_sent_time_ = time;
+    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
+                                        static_cast<size_t>(time),
+                                        kFlutterPointerDeviceKindMouse, 0);
   }
-
-  // Temporarily drop hover move dispatches entirely; cursor image is handled by
-  // the compositor and button interactions remain intact.
-  return;
-}
-
-gboolean TizenWindowEcoreWl2::DispatchPointerMove(gpointer data) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self) {
-    return G_SOURCE_REMOVE;
-  }
-
-  self->pointer_move_source_id_ = 0;
-
-  if (!self->running_ || !self->view_delegate_ || !self->pointer_move_pending_) {
-    self->pointer_move_pending_ = false;
-    return G_SOURCE_REMOVE;
-  }
-
-  self->pointer_move_pending_ = false;
-  self->last_pointer_sent_x_ = self->pointer_x_;
-  self->last_pointer_sent_y_ = self->pointer_y_;
-  self->perf_pointer_dispatch_count_++;
-
-  self->view_delegate_->OnPointerMove(
-      self->pointer_x_, self->pointer_y_,
-      static_cast<size_t>(self->last_pointer_sent_time_),
-      kFlutterPointerDeviceKindMouse, 0);
-
-  return G_SOURCE_REMOVE;
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
@@ -1282,18 +1188,6 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
 #endif
 
   self->last_input_serial_ = serial;
-
-  if (self->pointer_move_source_id_ != 0) {
-    g_source_remove(self->pointer_move_source_id_);
-    self->pointer_move_source_id_ = 0;
-  }
-  if (self->pointer_move_pending_) {
-    self->pointer_move_pending_ = false;
-    self->perf_pointer_dispatch_count_++;
-    self->view_delegate_->OnPointerMove(
-        self->pointer_x_, self->pointer_y_, static_cast<size_t>(time),
-        kFlutterPointerDeviceKindMouse, 0);
-  }
 
   FlutterPointerMouseButtons flutter_button = ToFlutterPointerButton(button);
   if (state == WL_POINTER_BUTTON_STATE_PRESSED) {

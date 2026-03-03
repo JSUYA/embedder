@@ -148,6 +148,18 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     }
   }
 
+  // Keep presentation cadence aligned with display refresh. Some targets fall
+  // back to a non-vsynced path unless interval is explicitly set.
+  if (eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_) ==
+      EGL_TRUE) {
+    if (eglSwapInterval(egl_display_, 1) != EGL_TRUE) {
+      PrintEGLError();
+      FT_LOG(Error) << "Failed to set EGL swap interval to 1.";
+    }
+    eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                   EGL_NO_CONTEXT);
+  }
+
   is_valid_ = true;
   return true;
 }
