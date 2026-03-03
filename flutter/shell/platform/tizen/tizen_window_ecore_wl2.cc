@@ -866,14 +866,23 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
 
   if (condition & G_IO_IN) {
     self->perf_io_in_count_++;
-    self->display_io_pending_ = true;
 
-    // Batch high-frequency pointer traffic to avoid starving rendering.
-    if (self->display_dispatch_source_id_ == 0) {
-      constexpr guint kDispatchIntervalMs = 33;  // ~30Hz input processing
-      self->display_dispatch_source_id_ = g_timeout_add_full(
-          G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
-          nullptr);
+    if (!self->display_io_pending_) {
+      self->display_io_pending_ = true;
+
+      // Temporarily detach the watch while work is pending to prevent callback
+      // storms (thousands/sec) from starving rendering.
+      if (self->display_io_watch_id_ != 0) {
+        g_source_remove(self->display_io_watch_id_);
+        self->display_io_watch_id_ = 0;
+      }
+
+      if (self->display_dispatch_source_id_ == 0) {
+        constexpr guint kDispatchIntervalMs = 16;  // ~60Hz input processing
+        self->display_dispatch_source_id_ = g_timeout_add_full(
+            G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
+            nullptr);
+      }
     }
   }
 
@@ -894,6 +903,14 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
   }
 
   self->display_io_pending_ = false;
+
+  // Re-arm IO watch now that the pending batch is being serviced.
+  if (self->display_io_watch_id_ == 0 && self->display_io_channel_) {
+    self->display_io_watch_id_ = g_io_add_watch(
+        self->display_io_channel_,
+        static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL),
+        HandleDisplayIO, self);
+  }
 
   const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
 
