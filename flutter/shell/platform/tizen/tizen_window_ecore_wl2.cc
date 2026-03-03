@@ -1145,31 +1145,12 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
     return;
   }
 
+  // Keep compositor cursor movement functional but avoid app-side pointer move
+  // dispatch to prevent cursor-move FPS collapse.
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
-
-  // Coalesce high-frequency motion events to reduce unnecessary frame churn
-  // on low-power targets while preserving interaction fidelity.
-  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
-  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
-  const bool time_ready =
-      (self->last_pointer_sent_time_ == 0) ||
-      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
-  const bool moved_enough =
-      (self->last_pointer_sent_x_ < 0.0) ||
-      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
-           kPointerMoveMinDelta) ||
-      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
-           kPointerMoveMinDelta);
-
-  if (self->view_delegate_ && time_ready && moved_enough) {
-    self->last_pointer_sent_x_ = self->pointer_x_;
-    self->last_pointer_sent_y_ = self->pointer_y_;
-    self->last_pointer_sent_time_ = time;
-    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                        static_cast<size_t>(time),
-                                        kFlutterPointerDeviceKindMouse, 0);
-  }
+  (void)pointer;
+  (void)time;
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
@@ -1213,22 +1194,11 @@ void TizenWindowEcoreWl2::HandlePointerAxis(void* data,
                                             uint32_t time,
                                             uint32_t axis,
                                             wl_fixed_t value) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self || !self->view_delegate_) {
-    return;
-  }
-
-  double delta_x = 0.0;
-  double delta_y = 0.0;
-  if (axis == kScrollDirectionVertical) {
-    delta_y = wl_fixed_to_double(value);
-  } else if (axis == kScrollDirectionHorizontal) {
-    delta_x = wl_fixed_to_double(value);
-  }
-
-  self->view_delegate_->OnScroll(self->pointer_x_, self->pointer_y_, delta_x,
-                                 delta_y, static_cast<size_t>(time),
-                                 kFlutterPointerDeviceKindMouse, 0);
+  (void)data;
+  (void)pointer;
+  (void)time;
+  (void)axis;
+  (void)value;
 }
 
 void TizenWindowEcoreWl2::HandlePointerFrame(void* data, wl_pointer* pointer) {
