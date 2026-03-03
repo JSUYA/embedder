@@ -45,6 +45,8 @@ unified_packages = [
   'capi-system-system-settings-devel',
   'coregl',
   'coregl-devel',
+  'ecore',
+  'ecore-devel',
   'efl-devel',
   'eina',
   'eina-devel',
