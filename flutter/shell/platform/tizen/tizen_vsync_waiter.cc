@@ -36,6 +36,10 @@ void TizenVsyncWaiter::EnqueueVsyncRequest(intptr_t baton) {
   if (stop_requested_) {
     return;
   }
+
+  // Keep only the latest pending request. Multiple outstanding requests before
+  // the next vblank just create avoidable backlog and latency.
+  batons_.clear();
   batons_.push_back(baton);
   queue_cv_.notify_one();
 }
@@ -111,7 +115,10 @@ void TdmClient::OnEngineStop() {
 }
 
 void TdmClient::AwaitVblank(intptr_t baton) {
-  baton_ = baton;
+  {
+    std::lock_guard<std::mutex> lock(baton_mutex_);
+    baton_ = baton;
+  }
   tdm_error ret = tdm_client_vblank_wait(vblank_, 1, VblankCallback, this);
   if (ret != TDM_ERROR_NONE) {
     FT_LOG(Error) << "tdm_client_vblank_wait failed with error: " << ret;
@@ -131,9 +138,15 @@ void TdmClient::VblankCallback(tdm_client_vblank* vblank,
 
   std::lock_guard<std::mutex> lock(self->engine_mutex_);
   if (self->engine_) {
+    intptr_t baton = 0;
+    {
+      std::lock_guard<std::mutex> baton_lock(self->baton_mutex_);
+      baton = self->baton_;
+    }
+
     uint64_t frame_start_time_nanos = tv_sec * 1e9 + tv_usec * 1e3;
     uint64_t frame_target_time_nanos = frame_start_time_nanos + 16.6 * 1e6;
-    self->engine_->OnVsync(self->baton_, frame_start_time_nanos,
+    self->engine_->OnVsync(baton, frame_start_time_nanos,
                            frame_target_time_nanos);
   }
 }

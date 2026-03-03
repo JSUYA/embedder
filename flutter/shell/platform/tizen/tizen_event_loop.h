@@ -13,6 +13,9 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <vector>
+
+#include <glib.h>
 
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/tizen/tizen_renderer.h"
@@ -66,7 +69,7 @@ class TizenEventLoop {
   TaskExpiredCallback on_task_expired_;
   std::mutex task_queue_mutex_;
   std::priority_queue<Task, std::deque<Task>, Task::Comparer> task_queue_;
- std::vector<Task> expired_tasks_;
+  std::vector<Task> expired_tasks_;
   std::mutex expired_tasks_mutex_;
   std::atomic<std::uint64_t> task_order_ = 0;
   std::atomic<bool> is_running_ = true;
@@ -74,6 +77,13 @@ class TizenEventLoop {
  private:
   // Returns a TaskTimePoint computed from the given target time from Flutter.
   TaskTimePoint TimePointFromFlutterTime(uint64_t flutter_target_time_nanos);
+
+  void ScheduleNextWakeup();
+  gboolean HandleWakeup();
+
+  std::mutex wakeup_mutex_;
+  guint wakeup_source_id_ = 0;
+  TaskTimePoint wakeup_fire_time_{};
 };
 
 class TizenPlatformEventLoop : public TizenEventLoop {

@@ -6,6 +6,7 @@
 #include "tizen_event_loop.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <glib.h>
 
 #include <utility>
@@ -21,6 +22,12 @@ TizenEventLoop::TizenEventLoop(std::thread::id main_thread_id,
 
 TizenEventLoop::~TizenEventLoop() {
   is_running_ = false;
+
+  std::lock_guard<std::mutex> lock(wakeup_mutex_);
+  if (wakeup_source_id_ != 0) {
+    g_source_remove(wakeup_source_id_);
+    wakeup_source_id_ = 0;
+  }
 }
 
 bool TizenEventLoop::RunsTasksOnCurrentThread() const {
@@ -65,32 +72,64 @@ void TizenEventLoop::PostTask(FlutterTask flutter_task,
     task_queue_.push(task);
   }
 
-  const double flutter_duration =
-      static_cast<double>(flutter_target_time_nanos) - get_current_time_();
-  if (flutter_duration > 0) {
-    const guint timeout_msec = static_cast<guint>(
-        std::max(1.0, flutter_duration / 1000000.0 /* nanos -> millis */));
-    g_timeout_add_full(
-        G_PRIORITY_DEFAULT, timeout_msec,
-        [](gpointer data) -> gboolean {
-          auto* self = static_cast<TizenEventLoop*>(data);
-          if (self->is_running_) {
-            self->ExecuteTaskEvents();
-          }
-          return G_SOURCE_REMOVE;
-        },
-        this, nullptr);
-  } else {
-    g_main_context_invoke(nullptr,  // default context
-                          [](gpointer data) -> gboolean {
-                            auto* self = static_cast<TizenEventLoop*>(data);
-                            if (self->is_running_) {
-                              self->ExecuteTaskEvents();
-                            }
-                            return G_SOURCE_REMOVE;
-                          },
-                          this);
+  ScheduleNextWakeup();
+}
+
+void TizenEventLoop::ScheduleNextWakeup() {
+  if (!is_running_) {
+    return;
   }
+
+  TaskTimePoint next_fire_time;
+  {
+    std::lock_guard<std::mutex> lock(task_queue_mutex_);
+    if (task_queue_.empty()) {
+      return;
+    }
+    next_fire_time = task_queue_.top().fire_time;
+  }
+
+  std::lock_guard<std::mutex> lock(wakeup_mutex_);
+
+  if (wakeup_source_id_ != 0 && wakeup_fire_time_ <= next_fire_time) {
+    // An earlier (or equal) wakeup is already scheduled.
+    return;
+  }
+
+  if (wakeup_source_id_ != 0) {
+    g_source_remove(wakeup_source_id_);
+    wakeup_source_id_ = 0;
+  }
+
+  const auto now = TaskTimePoint::clock::now();
+  const auto delta_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      next_fire_time - now);
+  const guint timeout_msec =
+      static_cast<guint>(std::max<int64_t>(0, delta_ms.count()));
+
+  wakeup_fire_time_ = next_fire_time;
+  wakeup_source_id_ = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, timeout_msec,
+      [](gpointer data) -> gboolean {
+        auto* self = static_cast<TizenEventLoop*>(data);
+        return self->HandleWakeup();
+      },
+      this, nullptr);
+}
+
+gboolean TizenEventLoop::HandleWakeup() {
+  {
+    std::lock_guard<std::mutex> lock(wakeup_mutex_);
+    wakeup_source_id_ = 0;
+  }
+
+  if (!is_running_) {
+    return G_SOURCE_REMOVE;
+  }
+
+  ExecuteTaskEvents();
+  ScheduleNextWakeup();
+  return G_SOURCE_REMOVE;
 }
 
 TizenPlatformEventLoop::TizenPlatformEventLoop(

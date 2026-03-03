@@ -44,6 +44,7 @@ class TdmClient {
   tdm_client_vblank* vblank_ = nullptr;
 
   intptr_t baton_ = 0;
+  std::mutex baton_mutex_;
 };
 
 class TizenVsyncWaiter {
