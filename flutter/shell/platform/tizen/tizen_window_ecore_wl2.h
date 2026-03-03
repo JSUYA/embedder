@@ -312,9 +312,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   double pointer_x_ = 0.0;
   double pointer_y_ = 0.0;
-  double last_pointer_sent_x_ = -1.0;
-  double last_pointer_sent_y_ = -1.0;
-  uint32_t last_pointer_sent_time_ = 0;
   bool pointer_button_pressed_ = false;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
@@ -332,6 +329,9 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   uint32_t perf_io_in_count_ = 0;
   uint32_t perf_dispatch_count_ = 0;
   uint64_t perf_dispatch_total_us_ = 0;
+
+  uint64_t last_pointer_motion_time_us_ = 0;
+  bool pointer_motion_pending_ = false;
 
   uint32_t resource_id_ = 0;
 

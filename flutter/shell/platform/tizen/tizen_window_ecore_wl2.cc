@@ -921,6 +921,21 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
 
   wl_display_flush(self->wl2_display_);
 
+  // Emit pointer move at most ~15Hz when hovering, while keeping drag
+  // interactions responsive.
+  if (self->view_delegate_ && self->pointer_motion_pending_) {
+    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
+    const uint64_t kHoverMoveIntervalUs = self->pointer_button_pressed_
+                                              ? 16000ULL
+                                              : 66000ULL;
+    if (now_us >= self->last_pointer_motion_time_us_ + kHoverMoveIntervalUs) {
+      self->view_delegate_->OnPointerMove(
+          self->pointer_x_, self->pointer_y_, static_cast<size_t>(now_us / 1000),
+          kFlutterPointerDeviceKindMouse, 0);
+      self->pointer_motion_pending_ = false;
+    }
+  }
+
   self->perf_dispatch_count_++;
   self->perf_dispatch_total_us_ +=
       static_cast<uint64_t>(g_get_monotonic_time()) - begin_us;
@@ -1230,29 +1245,13 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
 
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
+  self->pointer_motion_pending_ = true;
+  self->last_pointer_motion_time_us_ = static_cast<uint64_t>(g_get_monotonic_time());
 
-  // Coalesce high-frequency motion events to reduce unnecessary frame churn
-  // on low-power targets while preserving interaction fidelity.
-  const uint32_t kPointerMoveMinIntervalMs = self->pointer_button_pressed_ ? 8 : 24;
-  const double kPointerMoveMinDelta = self->pointer_button_pressed_ ? 0.5 : 2.0;
-  const bool time_ready =
-      (self->last_pointer_sent_time_ == 0) ||
-      (time >= self->last_pointer_sent_time_ + kPointerMoveMinIntervalMs);
-  const bool moved_enough =
-      (self->last_pointer_sent_x_ < 0.0) ||
-      (std::abs(self->pointer_x_ - self->last_pointer_sent_x_) >=
-           kPointerMoveMinDelta) ||
-      (std::abs(self->pointer_y_ - self->last_pointer_sent_y_) >=
-           kPointerMoveMinDelta);
-
-  if (self->view_delegate_ && time_ready && moved_enough) {
-    self->last_pointer_sent_x_ = self->pointer_x_;
-    self->last_pointer_sent_y_ = self->pointer_y_;
-    self->last_pointer_sent_time_ = time;
-    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                        static_cast<size_t>(time),
-                                        kFlutterPointerDeviceKindMouse, 0);
-  }
+  // Do not push high-frequency move events immediately. They are emitted at a
+  // controlled rate from DispatchDisplayIO.
+  (void)pointer;
+  (void)time;
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
