@@ -288,6 +288,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   wl_surface* cursor_surface_ = nullptr;
   wl_cursor_theme* cursor_theme_ = nullptr;
   wl_cursor* default_cursor_ = nullptr;
+  bool cursor_applied_ = false;
 
   tizen_policy* tizen_policy_ = nullptr;
   tizen_surface* tizen_surface_ = nullptr;

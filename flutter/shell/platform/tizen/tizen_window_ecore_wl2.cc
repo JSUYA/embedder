@@ -1201,7 +1201,7 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
 
-  if (self->default_cursor_ && self->cursor_surface_) {
+  if (self->default_cursor_ && self->cursor_surface_ && !self->cursor_applied_) {
     wl_cursor_image* image = self->default_cursor_->images[0];
     if (image) {
       wl_buffer* buffer = wl_cursor_image_get_buffer(image);
@@ -1211,7 +1211,8 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
       wl_surface_damage(self->cursor_surface_, 0, 0, image->width,
                         image->height);
       wl_surface_commit(self->cursor_surface_);
-      wl_display_flush(self->wl2_display_);
+      // Avoid forcing immediate flush on pointer-enter path.
+      self->cursor_applied_ = true;
     }
   }
 
@@ -1231,6 +1232,7 @@ void TizenWindowEcoreWl2::HandlePointerLeave(void* data,
     return;
   }
   self->last_input_serial_ = serial;
+  self->cursor_applied_ = false;
 }
 
 void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
