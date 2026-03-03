@@ -17,6 +17,7 @@
 #include <thread>
 
 #include "flutter/shell/platform/embedder/embedder.h"
+#include "flutter/shell/platform/tizen/tizen_renderer.h"
 
 namespace flutter {
 
@@ -86,6 +87,21 @@ class TizenPlatformEventLoop : public TizenEventLoop {
   virtual ~TizenPlatformEventLoop();
 
   virtual void OnTaskExpired() override;
+};
+
+class TizenRenderEventLoop : public TizenEventLoop {
+ public:
+  TizenRenderEventLoop(std::thread::id main_thread_id,
+                       CurrentTimeProc get_current_time,
+                       TaskExpiredCallback on_task_expired,
+                       TizenRenderer* renderer);
+  virtual ~TizenRenderEventLoop();
+
+  virtual void OnTaskExpired() override;
+
+ private:
+  TizenRenderer* renderer_ = nullptr;
+  std::atomic_bool has_pending_renderer_callback_ = false;
 };
 
 }  // namespace flutter

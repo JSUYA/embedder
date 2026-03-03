@@ -16,9 +16,6 @@
 
 namespace {
 
-// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_VIEW(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
-
 constexpr char kSysMenuKey[] = "XF86SysMenu";
 constexpr char kBackKey[] = "XF86Back";
 constexpr char kExitKey[] = "XF86Exit";
@@ -99,8 +96,6 @@ void FlutterTizenView::SetupChannels() {
       tizen_view_->input_method_context());
 
   input_device_channel_ = std::make_unique<InputDeviceChannel>(messenger);
-  input_panel_channel_ = std::make_unique<InputPanelChannel>(
-      messenger, tizen_view_->input_method_context());
 }
 
 void FlutterTizenView::Resize(int32_t width, int32_t height) {
@@ -114,9 +109,6 @@ void FlutterTizenView::OnResize(int32_t left,
                                 int32_t top,
                                 int32_t width,
                                 int32_t height) {
-  TEMP_DIAG_VIEW("OnResize left=" << left << " top=" << top << " w="
-                 << width << " h=" << height << " rotation="
-                 << rotation_degree_);
   if (rotation_degree_ == 90 || rotation_degree_ == 270) {
     std::swap(width, height);
   }
@@ -332,7 +324,6 @@ void FlutterTizenView::OnCommit(const std::string& str) {
 }
 
 void FlutterTizenView::SendInitialGeometry() {
-  TEMP_DIAG_VIEW("SendInitialGeometry called.");
   if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
     OnRotate(window->GetRotation());
   } else {
@@ -347,27 +338,12 @@ void FlutterTizenView::SendWindowMetrics(int32_t left,
                                          int32_t width,
                                          int32_t height,
                                          double pixel_ratio) {
-  // Guard against early native callbacks arriving before the engine is started.
-  // Sending metrics with an invalid engine handle triggers kInvalidArguments.
-  if (!engine_->IsRunning()) {
-    return;
-  }
-
   if (pixel_ratio == 0.0) {
     if (user_pixel_ratio_ == 0.0) {
       pixel_ratio = ComputePixelRatio(tizen_view_->GetDpi());
     } else {
       pixel_ratio = user_pixel_ratio_;
     }
-  }
-
-  static int metrics_log_count = 0;
-  if (metrics_log_count < 20) {
-    TEMP_DIAG_VIEW("SendWindowMetrics x=" << left << " y=" << top
-                    << " w=" << width << " h=" << height
-                    << " ratio=" << pixel_ratio
-                    << " engine_running=" << engine_->IsRunning());
-    metrics_log_count++;
   }
 
   engine_->SendWindowMetrics(left, top, width, height, pixel_ratio);

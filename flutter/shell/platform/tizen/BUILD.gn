@@ -18,24 +18,36 @@ config("flutter_tizen_config") {
     "${sysroot_path}/usr/include/dali-toolkit",
     "${sysroot_path}/usr/include/dlog",
     "${sysroot_path}/usr/include/ecore-1",
+    "${sysroot_path}/usr/include/ecore-con-1",
+    "${sysroot_path}/usr/include/ecore-evas-1",
+    "${sysroot_path}/usr/include/ecore-file-1",
+    "${sysroot_path}/usr/include/ecore-imf-1",
+    "${sysroot_path}/usr/include/ecore-imf-evas-1",
+    "${sysroot_path}/usr/include/ecore-input-1",
+    "${sysroot_path}/usr/include/ecore-input-evas-1",
+    "${sysroot_path}/usr/include/ecore-wayland-1",
+    "${sysroot_path}/usr/include/ecore-wl2-1",
+    "${sysroot_path}/usr/include/edje-1",
+    "${sysroot_path}/usr/include/eet-1",
     "${sysroot_path}/usr/include/efl-1",
+    "${sysroot_path}/usr/include/efl-extension",
+    "${sysroot_path}/usr/include/efl-1/interfaces",
+    "${sysroot_path}/usr/include/efreet-1",
     "${sysroot_path}/usr/include/eina-1",
     "${sysroot_path}/usr/include/eina-1/eina",
     "${sysroot_path}/usr/include/eldbus-1",
+    "${sysroot_path}/usr/include/elementary-1",
+    "${sysroot_path}/usr/include/emile-1",
     "${sysroot_path}/usr/include/eo-1",
+    "${sysroot_path}/usr/include/ethumb-1",
+    "${sysroot_path}/usr/include/ethumb-client-1",
+    "${sysroot_path}/usr/include/evas-1",
     "${sysroot_path}/usr/include/feedback",
-    "${sysroot_path}/usr/include/glib-2.0",
     "${sysroot_path}/usr/include/system",
     "${sysroot_path}/usr/include/tzsh",
     "${sysroot_path}/usr/include/vconf",
     "${sysroot_path}/usr/include/wayland-extension",
   ]
-
-  if (target_cpu == "arm64" || target_cpu == "x64") {
-    include_dirs += [ "${sysroot_path}/usr/lib64/glib-2.0/include" ]
-  } else {
-    include_dirs += [ "${sysroot_path}/usr/lib/glib-2.0/include" ]
-  }
 
   cflags_cc = [
     "-Wno-newline-eof",
@@ -72,7 +84,6 @@ template("embedder") {
       "channels/app_control_channel.cc",
       "channels/feedback_manager.cc",
       "channels/input_device_channel.cc",
-      "channels/input_panel_channel.cc",
       "channels/key_mapping.cc",
       "channels/keyboard_channel.cc",
       "channels/lifecycle_channel.cc",
@@ -84,11 +95,16 @@ template("embedder") {
       "channels/text_input_channel.cc",
       "channels/window_channel.cc",
       "external_texture_pixel_egl.cc",
+      "external_texture_pixel_egl_impeller.cc",
+      "external_texture_pixel_evas_gl.cc",
       "external_texture_surface_egl.cc",
+      "external_texture_surface_egl_impeller.cc",
+      "external_texture_surface_evas_gl.cc",
       "flutter_platform_node_delegate_tizen.cc",
       "flutter_project_bundle.cc",
       "flutter_tizen.cc",
       "flutter_tizen_display_monitor.cc",
+      "flutter_tizen_elementary.cc",
       "flutter_tizen_engine.cc",
       "flutter_tizen_texture_registrar.cc",
       "flutter_tizen_view.cc",
@@ -98,9 +114,12 @@ template("embedder") {
       "tizen_input_method_context.cc",
       "tizen_renderer.cc",
       "tizen_renderer_egl.cc",
+      "tizen_renderer_evas_gl.cc",
       "tizen_renderer_gl.cc",
+      "tizen_view_elementary.cc",
       "tizen_vsync_waiter.cc",
       "tizen_window_ecore_wl2.cc",
+      "tizen_window_elementary.cc",
     ]
 
     lib_dirs = [ "//engine/${target_cpu}" ]
@@ -114,29 +133,31 @@ template("embedder") {
       "capi-base-common",
       "capi-system-info",
       "capi-system-system-settings",
+      "capi-ui-efl-util",
       "dlog",
       "ecore",
+      "ecore_evas",
+      "ecore_imf",
+      "ecore_imf_evas",
+      "ecore_input",
+      "ecore_wl2",
+      "efl-extension",
       "eina",
       "eldbus",
+      "elementary",
+      "evas",
       "feedback",
       "flutter_engine",
-      "glib-2.0",
       "tbm",
-      "text-client",
       "tdm-client",
       "tizen-extension-client",
       "vconf",
       "wayland-client",
-      "wayland-cursor",
-      "wayland-egl",
-      "xdg-shell-client",
-      "xkbcommon",
       "EGL",
       "GLESv2",
     ]
 
-    if (target_name == "flutter_tizen_common" ||
-        target_name == "flutter_tizen_common_experimental") {
+    if (target_name == "flutter_tizen_common") {
       sources += [ "channels/tizen_shell.cc" ]
 
       libs += [
@@ -147,20 +168,6 @@ template("embedder") {
 
     defines += invoker.defines
     defines += [ "FLUTTER_ENGINE_NO_PROTOTYPES" ]
-
-    if (target_name == "flutter_tizen_mobile_experimental" ||
-        target_name == "flutter_tizen_tv_experimental" ||
-        target_name == "flutter_tizen_common_experimental") {
-      defines += [ "FLUTTER_TIZEN_EXPERIMENTAL" ]
-      sources += [
-        "external_texture_pixel_vulkan.cc",
-        "external_texture_surface_vulkan.cc",
-        "external_texture_surface_vulkan_buffer.cc",
-        "external_texture_surface_vulkan_buffer_dma.cc",
-        "tizen_renderer_vulkan.cc",
-      ]
-      deps += [ "//flutter/third_party/volk" ]
-    }
 
     if (api_version != "6.0") {
       sources += [
@@ -196,9 +203,8 @@ template("embedder") {
       "//flutter/shell/platform/common:common_cpp",
       "//flutter/shell/platform/common:common_cpp_accessibility",
       "//flutter/shell/platform/common:common_cpp_input",
-      "//flutter/shell/platform/common:common_cpp_isolate_scope",
       "//flutter/shell/platform/common:common_cpp_library_headers",
-      "//flutter/shell/platform/common/client_wrapper",
+      "//flutter/shell/platform/common/client_wrapper:client_wrapper",
       "//flutter/shell/platform/embedder:embedder_headers",
       "//third_party/rapidjson",
     ]
@@ -211,31 +217,13 @@ embedder("flutter_tizen_mobile") {
   defines = [ "MOBILE_PROFILE" ]
 }
 
-embedder("flutter_tizen_mobile_experimental") {
-  target_type = "shared_library"
-
-  defines = [ "MOBILE_PROFILE" ]
-}
-
 embedder("flutter_tizen_tv") {
   target_type = "shared_library"
 
   defines = [ "TV_PROFILE" ]
 }
 
-embedder("flutter_tizen_tv_experimental") {
-  target_type = "shared_library"
-
-  defines = [ "TV_PROFILE" ]
-}
-
 embedder("flutter_tizen_common") {
-  target_type = "shared_library"
-
-  defines = [ "COMMON_PROFILE" ]
-}
-
-embedder("flutter_tizen_common_experimental") {
   target_type = "shared_library"
 
   defines = [ "COMMON_PROFILE" ]
@@ -266,7 +254,7 @@ executable("flutter_tizen_unittests") {
     ":flutter_tizen_source",
     "//flutter/shell/platform/common:common_cpp",
     "//flutter/shell/platform/common:common_cpp_accessibility",
-    "//flutter/shell/platform/common/client_wrapper",
+    "//flutter/shell/platform/common/client_wrapper:client_wrapper",
     "//third_party/googletest:gtest_main",
     "//third_party/rapidjson",
   ]
@@ -285,11 +273,8 @@ copy("publish_headers_tizen") {
 group("flutter_tizen") {
   deps = [
     ":flutter_tizen_common",
-    ":flutter_tizen_common_experimental",
     ":flutter_tizen_mobile",
-    ":flutter_tizen_mobile_experimental",
     ":flutter_tizen_tv",
-    ":flutter_tizen_tv_experimental",
     ":publish_cpp_client_wrapper",
     ":publish_headers_tizen",
   ]

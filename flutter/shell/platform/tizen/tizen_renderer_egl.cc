@@ -4,7 +4,8 @@
 
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
 
-#include <EGL/eglext.h>
+#define EFL_BETA_API_SUPPORT
+#include <Ecore_Wl2.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #ifdef NUI_SUPPORT
@@ -15,13 +16,12 @@
 #include <tbm_surface_queue.h>
 
 #include "flutter/shell/platform/tizen/external_texture_pixel_egl.h"
+#include "flutter/shell/platform/tizen/external_texture_pixel_egl_impeller.h"
 #include "flutter/shell/platform/tizen/external_texture_surface_egl.h"
+#include "flutter/shell/platform/tizen/external_texture_surface_egl_impeller.h"
 #include "flutter/shell/platform/tizen/logger.h"
 
 namespace flutter {
-
-// [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
-#define TEMP_DIAG_EGL(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
                                    bool enable_impeller)
@@ -37,14 +37,27 @@ std::unique_ptr<ExternalTexture> TizenRendererEgl::CreateExternalTexture(
     const FlutterDesktopTextureInfo* texture_info) {
   switch (texture_info->type) {
     case kFlutterDesktopPixelBufferTexture:
-      return std::make_unique<ExternalTexturePixelEGL>(
-          texture_info->pixel_buffer_config.callback,
-          texture_info->pixel_buffer_config.user_data);
+      if (enable_impeller_) {
+        return std::make_unique<ExternalTexturePixelEGLImpeller>(
+            texture_info->pixel_buffer_config.callback,
+            texture_info->pixel_buffer_config.user_data);
+      } else {
+        return std::make_unique<ExternalTexturePixelEGL>(
+            texture_info->pixel_buffer_config.callback,
+            texture_info->pixel_buffer_config.user_data);
+      }
     case kFlutterDesktopGpuSurfaceTexture:
-      return std::make_unique<ExternalTextureSurfaceEGL>(
-          GetExternalTextureExtensionType(),
-          texture_info->gpu_surface_config.callback,
-          texture_info->gpu_surface_config.user_data);
+      if (enable_impeller_) {
+        return std::make_unique<ExternalTextureSurfaceEGLImpeller>(
+            GetExternalTextureExtensionType(),
+            texture_info->gpu_surface_config.callback,
+            texture_info->gpu_surface_config.user_data);
+      } else {
+        return std::make_unique<ExternalTextureSurfaceEGL>(
+            GetExternalTextureExtensionType(),
+            texture_info->gpu_surface_config.callback,
+            texture_info->gpu_surface_config.user_data);
+      }
   }
 }
 
@@ -52,23 +65,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
                                      void* render_target_display,
                                      int32_t width,
                                      int32_t height) {
-  TEMP_DIAG_EGL("CreateSurface begin. render_target=" << render_target
-               << " display=" << render_target_display << " size=" << width
-               << "x" << height);
   if (render_target_display) {
-    auto* wayland_display = static_cast<struct wl_display*>(render_target_display);
-
-    egl_display_ = eglGetDisplay(wayland_display);
-
-    if (egl_display_ == EGL_NO_DISPLAY) {
-      auto* get_platform_display =
-          reinterpret_cast<PFNEGLGETPLATFORMDISPLAYEXTPROC>(
-              eglGetProcAddress("eglGetPlatformDisplayEXT"));
-      if (get_platform_display) {
-        egl_display_ = get_platform_display(EGL_PLATFORM_WAYLAND_KHR,
-                                            wayland_display, nullptr);
-      }
-    }
+    egl_display_ =
+        eglGetDisplay(static_cast<wl_display*>(render_target_display));
   } else {
     egl_display_ = eglGetDisplay(tbm_dummy_display_create());
   }
@@ -78,7 +77,6 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     FT_LOG(Error) << "Could not get EGL display.";
     return false;
   }
-  TEMP_DIAG_EGL("EGL display acquired. egl_display=" << egl_display_);
 
   if (!ChooseEGLConfiguration()) {
     FT_LOG(Error) << "Could not choose an EGL configuration.";
@@ -111,7 +109,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     const EGLint attribs[] = {EGL_NONE};
 
     if (render_target_display) {
-      auto egl_window = static_cast<EGLNativeWindowType>(render_target);
+      auto* egl_window =
+          static_cast<EGLNativeWindowType*>(ecore_wl2_egl_window_native_get(
+              static_cast<Ecore_Wl2_Egl_Window*>(render_target)));
       egl_surface_ = eglCreateWindowSurface(egl_display_, egl_config_,
                                             egl_window, attribs);
     } else {
@@ -132,9 +132,6 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
       FT_LOG(Error) << "Could not create an onscreen window surface.";
       return false;
     }
-
-    FT_LOG(Info) << "EGL onscreen surface created. render_target="
-                 << render_target << " display=" << render_target_display;
   }
 
   {
@@ -146,18 +143,6 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
       FT_LOG(Error) << "Could not create an offscreen window surface.";
       return false;
     }
-  }
-
-  // Keep presentation cadence aligned with display refresh. Some targets fall
-  // back to a non-vsynced path unless interval is explicitly set.
-  if (eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_) ==
-      EGL_TRUE) {
-    if (eglSwapInterval(egl_display_, 1) != EGL_TRUE) {
-      PrintEGLError();
-      FT_LOG(Error) << "Failed to set EGL swap interval to 1.";
-    }
-    eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
-                   EGL_NO_CONTEXT);
   }
 
   is_valid_ = true;
@@ -333,9 +318,6 @@ bool TizenRendererEgl::OnPresent() {
     FT_LOG(Error) << "Could not swap EGL buffers.";
     return false;
   }
-
-  // [TEMP_DIAG_REMOVE] Avoid per-frame logging; it severely impacts pointer
-  // responsiveness on low-power targets.
   return true;
 }
 
