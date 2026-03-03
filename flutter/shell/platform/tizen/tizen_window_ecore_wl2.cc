@@ -109,11 +109,6 @@ bool IsEnvEnabled(const char* key) {
          v[0] == 'T';
 }
 
-bool IsHoverMoveDisabledForPerfProbe() {
-  static const bool kDisabled = IsEnvEnabled("FLUTTER_TIZEN_DISABLE_HOVER_MOVE");
-  return kDisabled;
-}
-
 bool IsPerfDiagEnabled() {
   static const bool kEnabled = IsEnvEnabled("FLUTTER_TIZEN_PERF_DIAG");
   return kEnabled;
