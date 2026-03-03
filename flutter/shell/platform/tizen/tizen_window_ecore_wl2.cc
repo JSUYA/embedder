@@ -921,19 +921,10 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
 
   wl_display_flush(self->wl2_display_);
 
-  // Emit pointer move at most ~15Hz when hovering, while keeping drag
-  // interactions responsive.
-  if (self->view_delegate_ && self->pointer_motion_pending_) {
-    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
-    const uint64_t kHoverMoveIntervalUs = self->pointer_button_pressed_
-                                              ? 16000ULL
-                                              : 66000ULL;
-    if (now_us >= self->last_pointer_motion_time_us_ + kHoverMoveIntervalUs) {
-      self->view_delegate_->OnPointerMove(
-          self->pointer_x_, self->pointer_y_, static_cast<size_t>(now_us / 1000),
-          kFlutterPointerDeviceKindMouse, 0);
-      self->pointer_motion_pending_ = false;
-    }
+  // Hard guard: do not forward hover move events to Flutter while we stabilize
+  // cursor-move FPS regression. Keep only compositor cursor updates.
+  if (self->pointer_motion_pending_) {
+    self->pointer_motion_pending_ = false;
   }
 
   self->perf_dispatch_count_++;
@@ -1248,7 +1239,6 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
   self->pointer_motion_pending_ = true;
-  self->last_pointer_motion_time_us_ = static_cast<uint64_t>(g_get_monotonic_time());
 
   // Do not push high-frequency move events immediately. They are emitted at a
   // controlled rate from DispatchDisplayIO.

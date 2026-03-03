@@ -331,7 +331,6 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   uint32_t perf_dispatch_count_ = 0;
   uint64_t perf_dispatch_total_us_ = 0;
 
-  uint64_t last_pointer_motion_time_us_ = 0;
   bool pointer_motion_pending_ = false;
 
   uint32_t resource_id_ = 0;
