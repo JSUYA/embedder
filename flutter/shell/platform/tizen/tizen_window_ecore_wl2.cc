@@ -851,13 +851,10 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
-    self->display_io_pending_ = true;
-    if (self->display_dispatch_source_id_ == 0) {
-      constexpr guint kDispatchIntervalMs = 16;
-      self->display_dispatch_source_id_ = g_timeout_add_full(
-          G_PRIORITY_DEFAULT, kDispatchIntervalMs, DispatchDisplayIO, self,
-          nullptr);
-    }
+    // Emergency perf isolation: do not dispatch Wayland client events from this
+    // watch callback. This intentionally sacrifices app-side pointer/keyboard
+    // updates to verify whether dispatch churn is the root cause of FPS drops.
+    return TRUE;
   }
 
   return TRUE;
