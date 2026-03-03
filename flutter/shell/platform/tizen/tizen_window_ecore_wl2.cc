@@ -18,7 +18,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -98,15 +97,6 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
 
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
-}
-
-bool IsPerfDiagEnabled() {
-  static const char* env = std::getenv("FLUTTER_TIZEN_PERF_DIAG");
-  if (!env) {
-    return false;
-  }
-  return env[0] == '1' || env[0] == 'y' || env[0] == 'Y' || env[0] == 't' ||
-         env[0] == 'T';
 }
 
 }  // namespace
@@ -858,62 +848,16 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     return FALSE;
   }
 
-  if (!(condition & G_IO_IN)) {
-    return TRUE;
-  }
-
-  self->perf_diag_io_in_count_++;
-
-  const uint64_t dispatch_begin_us = static_cast<uint64_t>(g_get_monotonic_time());
-
-  // Wayland-recommended non-blocking read cycle.
-  if (wl_display_prepare_read(self->wl2_display_) == 0) {
-    self->perf_diag_prepare_ok_count_++;
-    wl_display_flush(self->wl2_display_);
-    if (wl_display_read_events(self->wl2_display_) < 0) {
-      wl_display_cancel_read(self->wl2_display_);
-      FT_LOG(Error) << "wl_display_read_events failed.";
+  if (condition & G_IO_IN) {
+    if (wl_display_dispatch(self->wl2_display_) < 0) {
+      FT_LOG(Error) << "wl_display_dispatch failed.";
       return FALSE;
     }
   } else {
-    self->perf_diag_prepare_busy_count_++;
     wl_display_dispatch_pending(self->wl2_display_);
   }
 
-  if (wl_display_dispatch_pending(self->wl2_display_) < 0) {
-    FT_LOG(Error) << "wl_display_dispatch_pending failed.";
-    return FALSE;
-  }
-
-  self->perf_diag_dispatch_count_++;
-  self->perf_diag_dispatch_total_us_ +=
-      static_cast<uint64_t>(g_get_monotonic_time()) - dispatch_begin_us;
-
-  if (IsPerfDiagEnabled()) {
-    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
-    if (self->perf_diag_last_log_us_ == 0) {
-      self->perf_diag_last_log_us_ = now_us;
-    }
-    if (now_us - self->perf_diag_last_log_us_ >= 1000000ULL) {
-      const uint64_t avg_dispatch_us =
-          self->perf_diag_dispatch_count_ == 0
-              ? 0
-              : self->perf_diag_dispatch_total_us_ /
-                    self->perf_diag_dispatch_count_;
-      FT_LOG(Error) << "[PERF_DIAG][wl] io_in=" << self->perf_diag_io_in_count_
-                    << " prep_ok=" << self->perf_diag_prepare_ok_count_
-                    << " prep_busy=" << self->perf_diag_prepare_busy_count_
-                    << " dispatch=" << self->perf_diag_dispatch_count_
-                    << " avg_us=" << avg_dispatch_us;
-      self->perf_diag_io_in_count_ = 0;
-      self->perf_diag_prepare_ok_count_ = 0;
-      self->perf_diag_prepare_busy_count_ = 0;
-      self->perf_diag_dispatch_count_ = 0;
-      self->perf_diag_dispatch_total_us_ = 0;
-      self->perf_diag_last_log_us_ = now_us;
-    }
-  }
-
+  wl_display_flush(self->wl2_display_);
   return TRUE;
 }
 
