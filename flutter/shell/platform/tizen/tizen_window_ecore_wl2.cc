@@ -912,16 +912,11 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
 
   const uint64_t begin_us = static_cast<uint64_t>(g_get_monotonic_time());
 
-  if (wl_display_dispatch(self->wl2_display_) < 0) {
-    FT_LOG(Error) << "wl_display_dispatch failed.";
+  // Critical: wl_display_dispatch() can block and consume ~25-40ms per call
+  // on this target under cursor movement. Use pending-only dispatch here.
+  if (wl_display_dispatch_pending(self->wl2_display_) < 0) {
+    FT_LOG(Error) << "wl_display_dispatch_pending failed.";
     return G_SOURCE_REMOVE;
-  }
-
-  // Drain a small bounded amount to prevent backlog growth.
-  for (int i = 0; i < 3; ++i) {
-    if (wl_display_dispatch_pending(self->wl2_display_) <= 0) {
-      break;
-    }
   }
 
   wl_display_flush(self->wl2_display_);
