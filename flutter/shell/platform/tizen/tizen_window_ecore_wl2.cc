@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 
 #include <text-client-protocol.h>
@@ -97,6 +98,25 @@ xkb_keysym_t ResolveKeySymbolAlias(const std::string& key) {
 
 size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
+}
+
+bool IsEnvEnabled(const char* key) {
+  const char* v = std::getenv(key);
+  if (!v) {
+    return false;
+  }
+  return v[0] == '1' || v[0] == 'y' || v[0] == 'Y' || v[0] == 't' ||
+         v[0] == 'T';
+}
+
+bool IsHoverMoveDisabledForPerfProbe() {
+  static const bool kDisabled = IsEnvEnabled("FLUTTER_TIZEN_DISABLE_HOVER_MOVE");
+  return kDisabled;
+}
+
+bool IsPerfDiagEnabled() {
+  static const bool kEnabled = IsEnvEnabled("FLUTTER_TIZEN_PERF_DIAG");
+  return kEnabled;
 }
 
 }  // namespace
@@ -855,12 +875,32 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
+    self->perf_display_io_in_count_++;
     if (wl_display_dispatch(self->wl2_display_) < 0) {
       FT_LOG(Error) << "wl_display_dispatch failed.";
       return FALSE;
     }
   } else {
+    self->perf_display_io_other_count_++;
     wl_display_dispatch_pending(self->wl2_display_);
+  }
+
+  if (IsPerfDiagEnabled()) {
+    const uint64_t now_us = static_cast<uint64_t>(g_get_monotonic_time());
+    if (self->perf_last_log_us_ == 0) {
+      self->perf_last_log_us_ = now_us;
+    }
+    if (now_us - self->perf_last_log_us_ >= 1000000ULL) {
+      FT_LOG(Info) << "[PERF_DIAG][wl2] motion=" << self->perf_pointer_motion_count_
+                   << " dispatch=" << self->perf_pointer_dispatch_count_
+                   << " io_in=" << self->perf_display_io_in_count_
+                   << " io_other=" << self->perf_display_io_other_count_;
+      self->perf_pointer_motion_count_ = 0;
+      self->perf_pointer_dispatch_count_ = 0;
+      self->perf_display_io_in_count_ = 0;
+      self->perf_display_io_other_count_ = 0;
+      self->perf_last_log_us_ = now_us;
+    }
   }
 
   // Avoid unconditional flush on every readable display event. During pointer
@@ -1152,6 +1192,7 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
 
   self->pointer_x_ = wl_fixed_to_double(sx);
   self->pointer_y_ = wl_fixed_to_double(sy);
+  self->perf_pointer_motion_count_++;
 
   // Keep pointer drag interactions responsive, but coalesce hover motion to one
   // pending callback on the main loop. This prevents motion-event storms from
@@ -1161,10 +1202,15 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
       self->last_pointer_sent_x_ = self->pointer_x_;
       self->last_pointer_sent_y_ = self->pointer_y_;
       self->last_pointer_sent_time_ = time;
+      self->perf_pointer_dispatch_count_++;
       self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                           static_cast<size_t>(time),
                                           kFlutterPointerDeviceKindMouse, 0);
     }
+    return;
+  }
+
+  if (IsHoverMoveDisabledForPerfProbe()) {
     return;
   }
 
@@ -1194,6 +1240,7 @@ gboolean TizenWindowEcoreWl2::DispatchPointerMove(gpointer data) {
   self->pointer_move_pending_ = false;
   self->last_pointer_sent_x_ = self->pointer_x_;
   self->last_pointer_sent_y_ = self->pointer_y_;
+  self->perf_pointer_dispatch_count_++;
 
   self->view_delegate_->OnPointerMove(
       self->pointer_x_, self->pointer_y_,
@@ -1230,6 +1277,7 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
   }
   if (self->pointer_move_pending_) {
     self->pointer_move_pending_ = false;
+    self->perf_pointer_dispatch_count_++;
     self->view_delegate_->OnPointerMove(
         self->pointer_x_, self->pointer_y_, static_cast<size_t>(time),
         kFlutterPointerDeviceKindMouse, 0);
