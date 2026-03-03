@@ -376,17 +376,11 @@ void TizenWindowEcoreWl2::EnableCursor() {
 typedef enum _MouseSupport { DISABLE = 0, ENABLE } MouseSupport;
 typedef enum _Device_Type { MOUSE_DEVICE = 3, TOUCH_DEVICE } Device_Type;
 
-void TizenWindowEcoreWl2::SetPointingDeviceSupport() {
-  FT_LOG(Info) << "SetPointingDeviceSupport is not available without Ecore.";
-}
+void TizenWindowEcoreWl2::SetPointingDeviceSupport() {}
 
-void TizenWindowEcoreWl2::SetFloatingMenuSupport() {
-  FT_LOG(Info) << "SetFloatingMenuSupport is not available without Ecore.";
-}
+void TizenWindowEcoreWl2::SetFloatingMenuSupport() {}
 
-void TizenWindowEcoreWl2::ShowUnsupportedToast() {
-  FT_LOG(Info) << "ShowUnsupportedToast is not available without Ecore.";
-}
+void TizenWindowEcoreWl2::ShowUnsupportedToast() {}
 #endif
 
 void TizenWindowEcoreWl2::RegisterEventHandlers() {
@@ -658,10 +652,7 @@ uint32_t TizenWindowEcoreWl2::GetResourceId() {
 }
 
 void TizenWindowEcoreWl2::SetPreferredOrientations(
-    const std::vector<int>& rotations) {
-  FT_LOG(Info)
-      << "SetPreferredOrientations is not implemented by direct Wayland API.";
-}
+    const std::vector<int>& rotations) {}
 
 void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
   if (!tizen_keyrouter_ || !wl2_surface_) {
@@ -705,10 +696,7 @@ void TizenWindowEcoreWl2::Show() {
   wl_display_flush(wl2_display_);
 }
 
-void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {
-  FT_LOG(Info) << "UpdateFlutterCursor is not supported without Ecore: "
-               << kind;
-}
+void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {}
 
 void TizenWindowEcoreWl2::SetTizenPolicyNotificationLevel(int level) {
   if (tizen_policy_ && wl2_surface_) {
@@ -876,6 +864,9 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   }
 
   if (condition & G_IO_IN) {
+    if (self->display_io_pending_) {
+      return TRUE;
+    }
     self->perf_display_io_in_count_++;
     self->display_io_pending_ = true;
     if (self->display_dispatch_source_id_ == 0) {
@@ -930,9 +921,12 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayIO(gpointer data) {
   }
 
   int drain_count = 0;
-  while (drain_count < 8 && wl_display_dispatch_pending(self->wl2_display_) > 0) {
+  while (drain_count < 16 && wl_display_dispatch_pending(self->wl2_display_) > 0) {
     drain_count++;
   }
+
+  // Opportunistically flush batched client requests once per dispatch tick.
+  wl_display_flush(self->wl2_display_);
 
   return G_SOURCE_REMOVE;
 }
