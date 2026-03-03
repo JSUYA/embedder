@@ -6,8 +6,6 @@
 #ifndef EMBEDDER_TIZEN_EVENT_LOOP_H_
 #define EMBEDDER_TIZEN_EVENT_LOOP_H_
 
-#include <Ecore.h>
-
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -68,13 +66,12 @@ class TizenEventLoop {
   TaskExpiredCallback on_task_expired_;
   std::mutex task_queue_mutex_;
   std::priority_queue<Task, std::deque<Task>, Task::Comparer> task_queue_;
-  std::vector<Task> expired_tasks_;
+ std::vector<Task> expired_tasks_;
   std::mutex expired_tasks_mutex_;
   std::atomic<std::uint64_t> task_order_ = 0;
+  std::atomic<bool> is_running_ = true;
 
  private:
-  Ecore_Pipe* ecore_pipe_ = nullptr;
-
   // Returns a TaskTimePoint computed from the given target time from Flutter.
   TaskTimePoint TimePointFromFlutterTime(uint64_t flutter_target_time_nanos);
 };
@@ -87,21 +84,6 @@ class TizenPlatformEventLoop : public TizenEventLoop {
   virtual ~TizenPlatformEventLoop();
 
   virtual void OnTaskExpired() override;
-};
-
-class TizenRenderEventLoop : public TizenEventLoop {
- public:
-  TizenRenderEventLoop(std::thread::id main_thread_id,
-                       CurrentTimeProc get_current_time,
-                       TaskExpiredCallback on_task_expired,
-                       TizenRenderer* renderer);
-  virtual ~TizenRenderEventLoop();
-
-  virtual void OnTaskExpired() override;
-
- private:
-  TizenRenderer* renderer_ = nullptr;
-  std::atomic_bool has_pending_renderer_callback_ = false;
 };
 
 }  // namespace flutter
