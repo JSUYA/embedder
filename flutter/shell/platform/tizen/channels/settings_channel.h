@@ -5,7 +5,10 @@
 #ifndef EMBEDDER_SETTINGS_CHANNEL_H_
 #define EMBEDDER_SETTINGS_CHANNEL_H_
 
+#include <Ecore.h>
+
 #include <memory>
+#include <mutex>
 
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/basic_message_channel.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/binary_messenger.h"
@@ -19,11 +22,16 @@ class SettingsChannel {
   virtual ~SettingsChannel();
 
  private:
+  static Eina_Bool InitialRefresh(void* user_data);
+  void RefreshAndSendSettingsEvent();
   void SendSettingsEvent();
-  bool Prefer24HourTime();
-  float GetTextScaleFactor();
+  bool UpdatePrefer24HourTime();
+  float UpdateTextScaleFactor();
 
   std::unique_ptr<BasicMessageChannel<rapidjson::Document>> channel_;
+  std::mutex mutex_;
+  bool prefer_24_hour_time_ = false;
+  float text_scale_factor_ = 1.0f;
 };
 
 }  // namespace flutter
