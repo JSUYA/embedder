@@ -32,20 +32,12 @@ SettingsChannel::SettingsChannel(BinaryMessenger* messenger)
         self->SendSettingsEvent();
       },
       this);
-  system_settings_set_changed_cb(
-      SYSTEM_SETTINGS_KEY_FONT_SIZE,
-      [](system_settings_key_e key, void* user_data) -> void {
-        auto* self = static_cast<SettingsChannel*>(user_data);
-        self->SendSettingsEvent();
-      },
-      this);
   SendSettingsEvent();
 }
 
 SettingsChannel::~SettingsChannel() {
   system_settings_unset_changed_cb(
       SYSTEM_SETTINGS_KEY_LOCALE_TIMEFORMAT_24HOUR);
-  system_settings_unset_changed_cb(SYSTEM_SETTINGS_KEY_FONT_SIZE);
 }
 
 void SettingsChannel::SendSettingsEvent() {
@@ -68,29 +60,11 @@ bool SettingsChannel::Prefer24HourTime() {
 }
 
 float SettingsChannel::GetTextScaleFactor() {
-  const float small = 0.8;
-  const float normal = 1.0;
-  const float large = 1.5;
-  const float huge = 1.9;
-  const float giant = 2.5;
-
-  int value = SYSTEM_SETTINGS_FONT_SIZE_NORMAL;
-  if (system_settings_get_value_int(SYSTEM_SETTINGS_KEY_FONT_SIZE, &value) ==
-      SYSTEM_SETTINGS_ERROR_NONE) {
-    switch (value) {
-      case SYSTEM_SETTINGS_FONT_SIZE_SMALL:
-        return small;
-      case SYSTEM_SETTINGS_FONT_SIZE_LARGE:
-        return large;
-      case SYSTEM_SETTINGS_FONT_SIZE_HUGE:
-        return huge;
-      case SYSTEM_SETTINGS_FONT_SIZE_GIANT:
-        return giant;
-      default:
-        return normal;
-    }
-  }
-  return normal;
+  // Avoid synchronous font-size lookup during startup.
+  // On some devices this may block in buxton/vconf and make app launch hang.
+  // Keep default scale for now; follow-up can re-introduce dynamic value via
+  // non-blocking path.
+  return 1.0;
 }
 
 }  // namespace flutter
