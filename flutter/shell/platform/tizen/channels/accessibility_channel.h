@@ -33,6 +33,7 @@ class AccessibilityChannel {
 
   GDBusConnection* session_bus_ = nullptr;
   GDBusConnection* accessibility_bus_ = nullptr;
+  std::shared_ptr<int> lifetime_token_;
 };
 
 }  // namespace flutter

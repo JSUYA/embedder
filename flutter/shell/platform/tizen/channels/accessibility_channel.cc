@@ -20,7 +20,10 @@ constexpr char kAtspiDirectReadBus[] = "org.tizen.ScreenReader";
 constexpr char kAtspiDirectReadPath[] = "/org/tizen/DirectReading";
 constexpr char kAtspiDirectReadInterface[] = "org.tizen.DirectReading";
 
-}  // namespace
+struct AccessibilityChannelCallbackContext {
+  AccessibilityChannel* self;
+  std::weak_ptr<int> lifetime;
+};
 
 static void _readCommandCallback(GObject* source_object,
                                  GAsyncResult* res,
@@ -36,23 +39,38 @@ static void _readCommandCallback(GObject* source_object,
   }
 }
 
+}  // namespace
+
 void AccessibilityChannel::OnAccessibilityBusAddressGet(GObject* source_object,
                                                         GAsyncResult* res,
                                                         gpointer user_data) {
-  g_autoptr(GError) error = nullptr;
-  g_autoptr(GVariant) result = nullptr;
+  std::unique_ptr<AccessibilityChannelCallbackContext> context(
+      static_cast<AccessibilityChannelCallbackContext*>(user_data));
+  if (!context || context->lifetime.expired()) {
+    return;
+  }
+  auto* self = context->self;
 
-  result = g_dbus_connection_call_finish(G_DBUS_CONNECTION(source_object), res,
-                                         &error);
+  g_autoptr(GError) error = nullptr;
+  g_autoptr(GVariant) result = g_dbus_connection_call_finish(
+      G_DBUS_CONNECTION(source_object), res, &error);
   if (error) {
     FT_LOG(Error) << "Failed to connect session bus: " << error->message;
     return;
   }
 
   const gchar* socket_address = nullptr;
-  g_variant_get(result, "(&s)", &socket_address);
+  if (!result || !g_variant_is_of_type(result, G_VARIANT_TYPE("(s)"))) {
+    FT_LOG(Error) << "Unexpected GetAddress response type.";
+    return;
+  }
 
-  auto* self = static_cast<AccessibilityChannel*>(user_data);
+  g_variant_get(result, "(&s)", &socket_address);
+  if (!socket_address || socket_address[0] == '\0') {
+    FT_LOG(Error) << "Could not get A11Y Bus socket address.";
+    return;
+  }
+
   self->accessibility_bus_ = g_dbus_connection_new_for_address_sync(
       socket_address,
       static_cast<GDBusConnectionFlags>(
@@ -66,12 +84,19 @@ void AccessibilityChannel::OnAccessibilityBusAddressGet(GObject* source_object,
 
   g_dbus_connection_set_exit_on_close(self->accessibility_bus_, FALSE);
 
-  FT_LOG(Info) << "Successfully connected to A11Y Bus at:  " << socket_address;
+  FT_LOG(Info) << "Successfully connected to A11Y Bus";
 }
 
 void AccessibilityChannel::OnSessionBusConnection(GObject* source_object,
                                                   GAsyncResult* res,
                                                   gpointer user_data) {
+  std::unique_ptr<AccessibilityChannelCallbackContext> context(
+      static_cast<AccessibilityChannelCallbackContext*>(user_data));
+  if (!context || context->lifetime.expired()) {
+    return;
+  }
+  auto* self = context->self;
+
   g_autoptr(GError) error = nullptr;
   GDBusConnection* session_bus = g_bus_get_finish(res, &error);
   if (error) {
@@ -79,17 +104,18 @@ void AccessibilityChannel::OnSessionBusConnection(GObject* source_object,
     return;
   }
 
-  auto* self = static_cast<AccessibilityChannel*>(user_data);
   if (self->session_bus_) {
     g_object_unref(self->session_bus_);
   }
   self->session_bus_ = session_bus;
 
+  auto* next_context =
+      new AccessibilityChannelCallbackContext{self, context->lifetime};
   g_dbus_connection_call(
       session_bus, kAccessibilityDbus, kAccessibilityDbusPath,
       kAccessibilityDbusInterface, "GetAddress", nullptr, G_VARIANT_TYPE("(s)"),
       G_DBUS_CALL_FLAGS_NONE, -1, nullptr,
-      (GAsyncReadyCallback)OnAccessibilityBusAddressGet, self);
+      (GAsyncReadyCallback)OnAccessibilityBusAddressGet, next_context);
 }
 
 AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
@@ -97,8 +123,11 @@ AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
           messenger,
           kChannelName,
           &StandardMessageCodec::GetInstance())) {
+  lifetime_token_ = std::make_shared<int>(0);
+
+  auto* context = new AccessibilityChannelCallbackContext{this, lifetime_token_};
   g_bus_get(G_BUS_TYPE_SESSION, nullptr,
-            (GAsyncReadyCallback)OnSessionBusConnection, this);
+            (GAsyncReadyCallback)OnSessionBusConnection, context);
 
   channel_->SetMessageHandler([&](const auto& message, auto reply) {
     if (std::holds_alternative<EncodableMap>(message)) {
@@ -138,6 +167,7 @@ AccessibilityChannel::AccessibilityChannel(BinaryMessenger* messenger)
 
 AccessibilityChannel::~AccessibilityChannel() {
   channel_->SetMessageHandler(nullptr);
+  lifetime_token_.reset();
 
   if (accessibility_bus_) {
     g_object_unref(accessibility_bus_);
