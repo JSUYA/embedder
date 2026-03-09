@@ -14,6 +14,7 @@
 #include <tizen-extension-client-protocol.h>
 #include <xdg-shell-client-protocol.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -125,12 +126,17 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                uint32_t locked,
                                uint32_t group);
   void UpdateOutputDpi();
-  void ScheduleDisplayDispatch();
+  bool DispatchDisplayEvents();
+  void SchedulePointerMotion(size_t timestamp);
+  void FlushPendingPointerMotion();
+  void CancelPendingPointerMotion();
+  void UpdatePointerCursor();
+  wl_cursor* ResolveCursorForKind(const std::string& kind) const;
 
   static gboolean HandleDisplayIO(GIOChannel* channel,
                                   GIOCondition condition,
                                   gpointer data);
-  static gboolean DispatchPendingDisplayEvents(gpointer data);
+  static gboolean DispatchPendingPointerMotion(gpointer data);
 
   static void HandleRegistryGlobal(void* data,
                                    wl_registry* registry,
@@ -314,8 +320,11 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   double pointer_x_ = 0.0;
   double pointer_y_ = 0.0;
   bool pointer_button_pressed_ = false;
+  bool pointer_inside_surface_ = false;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
+  size_t pending_pointer_motion_timestamp_ = 0;
+  std::string current_cursor_kind_ = "basic";
 
   bool running_ = false;
   bool owns_surface_ = true;
@@ -323,8 +332,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   GIOChannel* display_io_channel_ = nullptr;
   guint display_io_watch_id_ = 0;
-  guint display_dispatch_idle_id_ = 0;
-  bool display_dispatch_pending_ = false;
+  guint pointer_motion_idle_id_ = 0;
+  bool pointer_motion_pending_ = false;
 
   uint32_t resource_id_ = 0;
 
