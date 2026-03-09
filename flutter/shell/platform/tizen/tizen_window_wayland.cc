@@ -391,6 +391,12 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
     display_io_watch_id_ = 0;
   }
 
+  if (display_dispatch_idle_id_ != 0) {
+    g_source_remove(display_dispatch_idle_id_);
+    display_dispatch_idle_id_ = 0;
+  }
+  display_dispatch_pending_ = false;
+
   if (display_io_channel_) {
     g_io_channel_unref(display_io_channel_);
     display_io_channel_ = nullptr;
@@ -837,6 +843,43 @@ void TizenWindowEcoreWl2::UpdateOutputDpi() {
   }
 }
 
+void TizenWindowEcoreWl2::ScheduleDisplayDispatch() {
+  if (!running_ || !wl2_display_) {
+    return;
+  }
+
+  display_dispatch_pending_ = true;
+  if (display_dispatch_idle_id_ != 0) {
+    return;
+  }
+
+  display_dispatch_idle_id_ =
+      g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, DispatchPendingDisplayEvents,
+                      this, nullptr);
+}
+
+gboolean TizenWindowEcoreWl2::DispatchPendingDisplayEvents(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_dispatch_idle_id_ = 0;
+
+  if (!self->running_ || !self->wl2_display_) {
+    self->display_dispatch_pending_ = false;
+    return G_SOURCE_REMOVE;
+  }
+
+  self->display_dispatch_pending_ = false;
+  if (wl_display_dispatch_pending(self->wl2_display_) < 0) {
+    FT_LOG(Error) << "Wayland display dispatch failed.";
+    return G_SOURCE_REMOVE;
+  }
+
+  return G_SOURCE_REMOVE;
+}
+
 gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
                                               GIOCondition condition,
                                               gpointer data) {
@@ -850,22 +893,13 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
     return FALSE;
   }
 
-  int dispatch_result = 0;
+  // Do not dispatch Wayland callbacks directly from the hot I/O watch path.
+  // Just note that work is pending and coalesce the actual dispatch onto a
+  // single idle callback on the main loop.
   if (condition & G_IO_IN) {
-    dispatch_result = wl_display_dispatch(self->wl2_display_);
-  } else {
-    dispatch_result = wl_display_dispatch_pending(self->wl2_display_);
+    self->ScheduleDisplayDispatch();
   }
 
-  if (dispatch_result < 0) {
-    FT_LOG(Error) << "Wayland display dispatch failed.";
-    return FALSE;
-  }
-
-  // Avoid forcing a client->compositor flush on every readable event.
-  // Pointer motion can make this path extremely hot, and the direct Wayland
-  // backend already flushes explicitly when it commits surfaces or sends
-  // protocol requests that need immediate delivery.
   return TRUE;
 }
 
@@ -1106,6 +1140,7 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
       wl_surface_damage(self->cursor_surface_, 0, 0, image->width,
                         image->height);
       wl_surface_commit(self->cursor_surface_);
+      wl_display_flush(self->wl2_display_);
     }
   }
 

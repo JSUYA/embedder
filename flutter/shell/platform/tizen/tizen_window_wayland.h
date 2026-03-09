@@ -125,10 +125,12 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                uint32_t locked,
                                uint32_t group);
   void UpdateOutputDpi();
+  void ScheduleDisplayDispatch();
 
   static gboolean HandleDisplayIO(GIOChannel* channel,
                                   GIOCondition condition,
                                   gpointer data);
+  static gboolean DispatchPendingDisplayEvents(gpointer data);
 
   static void HandleRegistryGlobal(void* data,
                                    wl_registry* registry,
@@ -321,6 +323,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   GIOChannel* display_io_channel_ = nullptr;
   guint display_io_watch_id_ = 0;
+  guint display_dispatch_idle_id_ = 0;
+  bool display_dispatch_pending_ = false;
 
   uint32_t resource_id_ = 0;
 
