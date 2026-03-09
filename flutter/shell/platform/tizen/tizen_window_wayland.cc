@@ -853,22 +853,19 @@ gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
   int dispatch_result = 0;
   if (condition & G_IO_IN) {
     dispatch_result = wl_display_dispatch(self->wl2_display_);
-    if (dispatch_result < 0) {
-      FT_LOG(Error) << "wl_display_dispatch failed.";
-      return FALSE;
-    }
   } else {
     dispatch_result = wl_display_dispatch_pending(self->wl2_display_);
   }
 
-  // Only flush if there's data to send, reducing unnecessary syscalls
-  if (wl_display_prepare_read(self->wl2_display_) == 0) {
-    wl_display_cancel_read(self->wl2_display_);
-    wl_display_flush(self->wl2_display_);
-  } else {
-    wl_display_flush(self->wl2_display_);
+  if (dispatch_result < 0) {
+    FT_LOG(Error) << "Wayland display dispatch failed.";
+    return FALSE;
   }
 
+  // Avoid forcing a client->compositor flush on every readable event.
+  // Pointer motion can make this path extremely hot, and the direct Wayland
+  // backend already flushes explicitly when it commits surfaces or sends
+  // protocol requests that need immediate delivery.
   return TRUE;
 }
 
@@ -1099,17 +1096,16 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   if (self->default_cursor_ && self->cursor_surface_) {
     wl_cursor_image* image = self->default_cursor_->images[0];
     if (image) {
-      FT_LOG(Error) << "CJS Set cursor.";
       wl_buffer* buffer = wl_cursor_image_get_buffer(image);
 
+      // Set cursor first, then update the cursor surface content.
+      // This order is important for some compositors to avoid flicker.
+      wl_pointer_set_cursor(pointer, serial, self->cursor_surface_,
+                            image->hotspot_x, image->hotspot_y);
       wl_surface_attach(self->cursor_surface_, buffer, 0, 0);
       wl_surface_damage(self->cursor_surface_, 0, 0, image->width,
                         image->height);
       wl_surface_commit(self->cursor_surface_);
-      // wl_display_flush(self->wl2_display_);
-
-      wl_pointer_set_cursor(pointer, serial, self->cursor_surface_,
-                            image->hotspot_x, image->hotspot_y);
     }
   }
 
@@ -1141,10 +1137,18 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
     return;
   }
 
-  self->pointer_x_ = wl_fixed_to_double(sx);
-  self->pointer_y_ = wl_fixed_to_double(sy);
-  FT_LOG(Error) << "CJS called Motion " << self->pointer_x_ << " "
-                << self->pointer_y_;
+  const double next_x = wl_fixed_to_double(sx);
+  const double next_y = wl_fixed_to_double(sy);
+
+  // Skip redundant hover events. During cursor movement the compositor can
+  // still wake the client frequently even when coordinates are effectively
+  // unchanged, and forwarding those no-op moves hurts frame pacing.
+  if (next_x == self->pointer_x_ && next_y == self->pointer_y_) {
+    return;
+  }
+
+  self->pointer_x_ = next_x;
+  self->pointer_y_ = next_y;
   self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                       static_cast<size_t>(time),
                                       kFlutterPointerDeviceKindMouse, 0);
