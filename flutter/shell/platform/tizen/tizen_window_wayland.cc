@@ -7,11 +7,13 @@
 #ifdef TV_PROFILE
 #include <app.h>
 #include <app_preference.h>
+#include <dlfcn.h>
 #include <time.h>
 #include <vconf.h>
 #endif
 
 #include <linux/input.h>
+#include <poll.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -282,26 +284,9 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   }
   wl_display_flush(wl2_display_);
 
-  int display_fd = wl_display_get_fd(wl2_display_);
-  if (display_fd >= 0) {
-    display_io_channel_ = g_io_channel_unix_new(display_fd);
-    if (display_io_channel_) {
-      GError* error = nullptr;
-      g_io_channel_set_encoding(display_io_channel_, nullptr, &error);
-      if (error) {
-        FT_LOG(Error) << "Failed to set GIOChannel encoding: "
-                      << error->message;
-        g_error_free(error);
-      }
-      g_io_channel_set_buffered(display_io_channel_, FALSE);
-      display_io_watch_id_ = g_io_add_watch(
-          display_io_channel_,
-          static_cast<GIOCondition>(G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL),
-          HandleDisplayIO, this);
-    }
-  }
-
   running_ = true;
+  display_fd_ = wl_display_get_fd(wl2_display_);
+  StartDisplayEventThread();
   TEMP_DIAG_ECORE_WL2("CreateWindow success. running=" << running_);
   return true;
 }
@@ -339,6 +324,51 @@ void TizenWindowEcoreWl2::SetWindowOptions() {
 }
 
 void TizenWindowEcoreWl2::EnableCursor() {
+#ifdef TV_PROFILE
+  if (!tv_cursor_configured_ && wl2_display_ && registry_ && seat_ &&
+      wl2_surface_ && tizen_cursor_global_id_ != 0) {
+    // Samsung TV devices enable their low-cost cursor path through the
+    // tizen_cursor extension instead of plain wl_shm cursor surfaces.
+    void* handle = dlopen("libvd-win-util.so", RTLD_LAZY);
+    if (!handle) {
+      FT_LOG(Error) << "Could not open a shared library libvd-win-util.so.";
+    } else {
+      int (*CursorModule_Initialize)(wl_display* display,
+                                     wl_registry* registry,
+                                     wl_seat* seat,
+                                     unsigned int id) = nullptr;
+      int (*Cursor_Set_Config)(wl_surface* surface,
+                               uint32_t config_type,
+                               void* data) = nullptr;
+      void (*CursorModule_Finalize)(void) = nullptr;
+      *(void**)(&CursorModule_Initialize) =
+          dlsym(handle, "CursorModule_Initialize");
+      *(void**)(&Cursor_Set_Config) = dlsym(handle, "Cursor_Set_Config");
+      *(void**)(&CursorModule_Finalize) =
+          dlsym(handle, "CursorModule_Finalize");
+
+      if (!CursorModule_Initialize || !Cursor_Set_Config ||
+          !CursorModule_Finalize) {
+        FT_LOG(Error) << "Could not load cursor module symbols.";
+      } else if (!CursorModule_Initialize(wl2_display_, registry_, seat_,
+                                          tizen_cursor_global_id_)) {
+        FT_LOG(Error) << "Failed to initialize the TV cursor module.";
+      } else {
+        wl_display_roundtrip(wl2_display_);
+
+        // config_type 1 = TIZEN_CURSOR_CONFIG_CURSOR_AVAILABLE.
+        if (!Cursor_Set_Config(wl2_surface_, 1, nullptr)) {
+          FT_LOG(Error) << "Failed to configure TV cursor support.";
+        } else {
+          tv_cursor_configured_ = true;
+        }
+        CursorModule_Finalize();
+      }
+      dlclose(handle);
+    }
+  }
+#endif
+
   // [TEMP_DIAG_REMOVE] Cursor restore path (wl_shm-backed).
   if (!compositor_ || !wl2_display_ || !shm_) {
     TEMP_DIAG_ECORE_WL2("EnableCursor skipped. compositor="
@@ -387,17 +417,8 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
 }
 
 void TizenWindowEcoreWl2::UnregisterEventHandlers() {
-  if (display_io_watch_id_ != 0) {
-    g_source_remove(display_io_watch_id_);
-    display_io_watch_id_ = 0;
-  }
-
+  StopDisplayEventThread();
   CancelPendingPointerMotion();
-
-  if (display_io_channel_) {
-    g_io_channel_unref(display_io_channel_);
-    display_io_channel_ = nullptr;
-  }
 }
 
 void TizenWindowEcoreWl2::DestroyWindow() {
@@ -540,6 +561,7 @@ void TizenWindowEcoreWl2::DestroyWindow() {
     wl_display_disconnect(wl2_display_);
     wl2_display_ = nullptr;
   }
+  display_fd_ = -1;
 
   if (keyboard_state_.state) {
     xkb_state_unref(keyboard_state_.state);
@@ -846,8 +868,99 @@ void TizenWindowEcoreWl2::UpdateOutputDpi() {
   }
 }
 
+void TizenWindowEcoreWl2::StartDisplayEventThread() {
+  if (display_fd_ < 0 || display_event_thread_.joinable()) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(display_dispatch_mutex_);
+    stop_display_event_thread_ = false;
+    display_dispatch_scheduled_ = false;
+  }
+
+  display_event_thread_ =
+      std::thread(&TizenWindowEcoreWl2::RunDisplayEventThread, this);
+}
+
+void TizenWindowEcoreWl2::StopDisplayEventThread() {
+  guint source_id = 0;
+  {
+    std::lock_guard<std::mutex> lock(display_dispatch_mutex_);
+    stop_display_event_thread_ = true;
+    display_dispatch_scheduled_ = false;
+    source_id = display_dispatch_source_id_;
+    display_dispatch_source_id_ = 0;
+  }
+  display_dispatch_cv_.notify_all();
+
+  if (source_id != 0) {
+    g_source_remove(source_id);
+  }
+
+  if (display_event_thread_.joinable()) {
+    display_event_thread_.join();
+  }
+}
+
+void TizenWindowEcoreWl2::RunDisplayEventThread() {
+  // Keep the blocking fd wait off the main loop. The main thread still owns
+  // actual Wayland dispatch so callbacks continue to run on the platform
+  // thread where the rest of the embedder expects them.
+  while (true) {
+    {
+      std::unique_lock<std::mutex> lock(display_dispatch_mutex_);
+      display_dispatch_cv_.wait(lock, [this] {
+        return stop_display_event_thread_ || !display_dispatch_scheduled_;
+      });
+      if (stop_display_event_thread_) {
+        return;
+      }
+    }
+
+    struct pollfd poll_fd = {
+        display_fd_,
+        static_cast<short>(POLLIN | POLLERR | POLLHUP | POLLNVAL),
+        0,
+    };
+
+    const int poll_result = poll(&poll_fd, 1, 50);
+    if (poll_result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      FT_LOG(Error) << "Wayland display poll failed.";
+      return;
+    }
+    if (poll_result == 0) {
+      continue;
+    }
+
+    if (poll_fd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+      FT_LOG(Error) << "Wayland display poll got an error condition.";
+      return;
+    }
+
+    if (poll_fd.revents & POLLIN) {
+      ScheduleDisplayDispatchOnMainThread();
+    }
+  }
+}
+
+void TizenWindowEcoreWl2::ScheduleDisplayDispatchOnMainThread() {
+  std::lock_guard<std::mutex> lock(display_dispatch_mutex_);
+  if (stop_display_event_thread_ || display_dispatch_scheduled_) {
+    return;
+  }
+
+  display_dispatch_scheduled_ = true;
+  display_dispatch_source_id_ =
+      g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, DispatchDisplayEventsOnMainThread,
+                      this, nullptr);
+}
+
 bool TizenWindowEcoreWl2::DispatchDisplayEvents() {
-  if (!running_ || !wl2_display_) {
+  if (!running_ || !wl2_display_ || display_fd_ < 0) {
     return false;
   }
 
@@ -868,6 +981,26 @@ bool TizenWindowEcoreWl2::DispatchDisplayEvents() {
     return false;
   }
 
+  struct pollfd poll_fd = {
+      display_fd_,
+      static_cast<short>(POLLIN | POLLERR | POLLHUP | POLLNVAL),
+      0,
+  };
+  const int poll_result = poll(&poll_fd, 1, 0);
+  if (poll_result <= 0) {
+    wl_display_cancel_read(wl2_display_);
+    return true;
+  }
+  if (poll_fd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+    wl_display_cancel_read(wl2_display_);
+    FT_LOG(Error) << "Wayland display read poll got an error condition.";
+    return false;
+  }
+  if (!(poll_fd.revents & POLLIN)) {
+    wl_display_cancel_read(wl2_display_);
+    return true;
+  }
+
   if (wl_display_read_events(wl2_display_) < 0) {
     FT_LOG(Error) << "Wayland display read failed.";
     return false;
@@ -885,6 +1018,26 @@ bool TizenWindowEcoreWl2::DispatchDisplayEvents() {
   }
 
   return true;
+}
+
+gboolean TizenWindowEcoreWl2::DispatchDisplayEventsOnMainThread(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(self->display_dispatch_mutex_);
+    self->display_dispatch_source_id_ = 0;
+  }
+  self->DispatchDisplayEvents();
+
+  {
+    std::lock_guard<std::mutex> lock(self->display_dispatch_mutex_);
+    self->display_dispatch_scheduled_ = false;
+  }
+  self->display_dispatch_cv_.notify_all();
+  return G_SOURCE_REMOVE;
 }
 
 void TizenWindowEcoreWl2::SchedulePointerMotion(size_t timestamp) {
@@ -991,26 +1144,6 @@ gboolean TizenWindowEcoreWl2::DispatchPendingPointerMotion(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 
-gboolean TizenWindowEcoreWl2::HandleDisplayIO(GIOChannel* channel,
-                                              GIOCondition condition,
-                                              gpointer data) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self || !self->running_ || !self->wl2_display_) {
-    return FALSE;
-  }
-
-  if (condition & (G_IO_HUP | G_IO_ERR | G_IO_NVAL)) {
-    FT_LOG(Error) << "Wayland display watch got an error condition.";
-    return FALSE;
-  }
-
-  if (condition & G_IO_IN) {
-    return self->DispatchDisplayEvents() ? TRUE : FALSE;
-  }
-
-  return TRUE;
-}
-
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
                                                wl_registry* registry,
                                                uint32_t name,
@@ -1077,6 +1210,10 @@ void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
         registry, name, &tizen_keyrouter_interface, std::min(version, 2u)));
     TEMP_DIAG_ECORE_WL2("Bind tizen_keyrouter name=" << name
                                                      << " ver=" << version);
+  } else if (strcmp(interface, "tizen_cursor") == 0) {
+#ifdef TV_PROFILE
+    self->tizen_cursor_global_id_ = name;
+#endif
   } else if (strcmp(interface, tizen_surface_interface.name) == 0) {
     self->tizen_surface_ = static_cast<tizen_surface*>(wl_registry_bind(
         registry, name, &tizen_surface_interface, std::min(version, 1u)));
@@ -1174,6 +1311,7 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
           HandlePointerButton, HandlePointerAxis,
       };
       wl_pointer_add_listener(self->pointer_, &kPointerListener, self);
+      self->EnableCursor();
     }
   } else if (self->pointer_) {
     self->pointer_inside_surface_ = false;

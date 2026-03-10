@@ -16,7 +16,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -126,6 +129,10 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                uint32_t locked,
                                uint32_t group);
   void UpdateOutputDpi();
+  void StartDisplayEventThread();
+  void StopDisplayEventThread();
+  void RunDisplayEventThread();
+  void ScheduleDisplayDispatchOnMainThread();
   bool DispatchDisplayEvents();
   void SchedulePointerMotion(size_t timestamp);
   void FlushPendingPointerMotion();
@@ -133,9 +140,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   void UpdatePointerCursor();
   wl_cursor* ResolveCursorForKind(const std::string& kind) const;
 
-  static gboolean HandleDisplayIO(GIOChannel* channel,
-                                  GIOCondition condition,
-                                  gpointer data);
+  static gboolean DispatchDisplayEventsOnMainThread(gpointer data);
   static gboolean DispatchPendingPointerMotion(gpointer data);
 
   static void HandleRegistryGlobal(void* data,
@@ -330,8 +335,13 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   bool owns_surface_ = true;
   bool is_vulkan_ = false;
 
-  GIOChannel* display_io_channel_ = nullptr;
-  guint display_io_watch_id_ = 0;
+  int display_fd_ = -1;
+  std::thread display_event_thread_;
+  std::mutex display_dispatch_mutex_;
+  std::condition_variable display_dispatch_cv_;
+  bool stop_display_event_thread_ = false;
+  bool display_dispatch_scheduled_ = false;
+  guint display_dispatch_source_id_ = 0;
   guint pointer_motion_idle_id_ = 0;
   bool pointer_motion_pending_ = false;
 
@@ -341,6 +351,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   bool pointing_device_support_ = true;
   bool floating_menu_support_ = true;
   bool show_unsupported_toast_ = false;
+  bool tv_cursor_configured_ = false;
+  uint32_t tizen_cursor_global_id_ = 0;
 #endif
 };
 
