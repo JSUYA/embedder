@@ -16,10 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <condition_variable>
-#include <mutex>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -129,11 +126,13 @@ class TizenWindowEcoreWl2 : public TizenWindow {
                                uint32_t locked,
                                uint32_t group);
   void UpdateOutputDpi();
-  void StartDisplayEventThread();
-  void StopDisplayEventThread();
-  void RunDisplayEventThread();
-  void ScheduleDisplayDispatchOnMainThread();
-  bool DispatchDisplayEvents();
+  void StartDisplayEventSource();
+  void StopDisplayEventSource();
+  bool PrepareDisplayEventSource(int* timeout_ms);
+  bool CheckDisplayEventSource(GIOCondition revents);
+  bool DispatchDisplayEventSource(GIOCondition revents);
+  void UpdateDisplaySourcePollEvents();
+  gushort GetDisplaySourcePollEvents() const;
   bool FlushDisplay();
   void InvalidatePointerCursor();
   bool PreparePointerCursor();
@@ -141,7 +140,11 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   void UpdatePointerCursor();
   wl_cursor* ResolveCursorForKind(const std::string& kind) const;
 
-  static gboolean DispatchDisplayEventsOnMainThread(gpointer data);
+  static gboolean HandleDisplaySourcePrepare(GSource* source, gint* timeout_ms);
+  static gboolean HandleDisplaySourceCheck(GSource* source);
+  static gboolean HandleDisplaySourceDispatch(GSource* source,
+                                              GSourceFunc callback,
+                                              gpointer user_data);
 
   static void HandleRegistryGlobal(void* data,
                                    wl_registry* registry,
@@ -338,12 +341,9 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   bool is_vulkan_ = false;
 
   int display_fd_ = -1;
-  std::thread display_event_thread_;
-  std::mutex display_dispatch_mutex_;
-  std::condition_variable display_dispatch_cv_;
-  bool stop_display_event_thread_ = false;
-  bool display_dispatch_scheduled_ = false;
-  guint display_dispatch_source_id_ = 0;
+  GSource* display_source_ = nullptr;
+  bool display_read_prepared_ = false;
+  bool display_flush_pending_ = false;
 
   uint32_t resource_id_ = 0;
 

@@ -10,7 +10,6 @@
 #endif
 
 #include <linux/input.h>
-#include <poll.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -57,6 +56,16 @@ constexpr char kSysMouseCursorPointerSizeVConfKey[] =
     "db/menu/system/mouse-pointer-size";
 constexpr char kTvCursorThemeName[] = "vd-cursors";
 #endif
+
+struct WaylandDisplaySource {
+  GSource source;
+  GPollFD poll_fd;
+  TizenWindowEcoreWl2* window = nullptr;
+};
+
+WaylandDisplaySource* AsWaylandDisplaySource(GSource* source) {
+  return reinterpret_cast<WaylandDisplaySource*>(source);
+}
 
 int32_t ToRotationDegree(int32_t transform) {
   switch (transform) {
@@ -341,11 +350,11 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   if (xdg_wm_base_ || owns_surface_) {
     wl_surface_commit(wl2_surface_);
   }
-  wl_display_flush(wl2_display_);
+  FlushDisplay();
 
   running_ = true;
   display_fd_ = wl_display_get_fd(wl2_display_);
-  StartDisplayEventThread();
+  StartDisplayEventSource();
   TEMP_DIAG_ECORE_WL2("CreateWindow success. running=" << running_);
   return true;
 }
@@ -510,7 +519,7 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
 }
 
 void TizenWindowEcoreWl2::UnregisterEventHandlers() {
-  StopDisplayEventThread();
+  StopDisplayEventSource();
 }
 
 void TizenWindowEcoreWl2::DestroyWindow() {
@@ -700,7 +709,7 @@ bool TizenWindowEcoreWl2::SetGeometry(TizenGeometry geometry) {
     wl_surface_commit(wl2_surface_);
   }
   if (wl2_display_) {
-    wl_display_flush(wl2_display_);
+    FlushDisplay();
   }
 
   return true;
@@ -788,7 +797,7 @@ void TizenWindowEcoreWl2::BindKeys(const std::vector<std::string>& keys) {
                                 TIZEN_KEYROUTER_MODE_TOPMOST);
   }
 
-  wl_display_flush(wl2_display_);
+  FlushDisplay();
 }
 
 void TizenWindowEcoreWl2::Show() {
@@ -801,7 +810,7 @@ void TizenWindowEcoreWl2::Show() {
   if (xdg_wm_base_ || owns_surface_) {
     wl_surface_commit(wl2_surface_);
   }
-  wl_display_flush(wl2_display_);
+  FlushDisplay();
 }
 
 void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {
@@ -862,21 +871,21 @@ void* TizenWindowEcoreWl2::GetRenderTarget() {
 void TizenWindowEcoreWl2::ActivateWindow() {
   if (tizen_policy_ && wl2_surface_) {
     tizen_policy_activate(tizen_policy_, wl2_surface_);
-    wl_display_flush(wl2_display_);
+    FlushDisplay();
   }
 }
 
 void TizenWindowEcoreWl2::RaiseWindow() {
   if (tizen_policy_ && wl2_surface_) {
     tizen_policy_raise(tizen_policy_, wl2_surface_);
-    wl_display_flush(wl2_display_);
+    FlushDisplay();
   }
 }
 
 void TizenWindowEcoreWl2::LowerWindow() {
   if (tizen_policy_ && wl2_surface_) {
     tizen_policy_lower(tizen_policy_, wl2_surface_);
-    wl_display_flush(wl2_display_);
+    FlushDisplay();
   }
 }
 
@@ -966,104 +975,68 @@ void TizenWindowEcoreWl2::UpdateOutputDpi() {
   }
 }
 
-void TizenWindowEcoreWl2::StartDisplayEventThread() {
-  if (display_fd_ < 0 || display_event_thread_.joinable()) {
+void TizenWindowEcoreWl2::StartDisplayEventSource() {
+  if (display_fd_ < 0 || display_source_) {
     return;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(display_dispatch_mutex_);
-    stop_display_event_thread_ = false;
-    display_dispatch_scheduled_ = false;
-  }
+  static const GSourceFuncs kDisplaySourceFuncs = {
+      HandleDisplaySourcePrepare,
+      HandleDisplaySourceCheck,
+      HandleDisplaySourceDispatch,
+      nullptr,
+      nullptr,
+      nullptr,
+  };
 
-  display_event_thread_ =
-      std::thread(&TizenWindowEcoreWl2::RunDisplayEventThread, this);
-}
-
-void TizenWindowEcoreWl2::StopDisplayEventThread() {
-  guint source_id = 0;
-  {
-    std::lock_guard<std::mutex> lock(display_dispatch_mutex_);
-    stop_display_event_thread_ = true;
-    display_dispatch_scheduled_ = false;
-    source_id = display_dispatch_source_id_;
-    display_dispatch_source_id_ = 0;
-  }
-  display_dispatch_cv_.notify_all();
-
-  if (source_id != 0) {
-    g_source_remove(source_id);
-  }
-
-  if (display_event_thread_.joinable()) {
-    display_event_thread_.join();
-  }
-}
-
-void TizenWindowEcoreWl2::RunDisplayEventThread() {
-  // Keep the blocking fd wait off the main loop. The main thread still owns
-  // actual Wayland dispatch so callbacks continue to run on the platform
-  // thread where the rest of the embedder expects them.
-  while (true) {
-    {
-      std::unique_lock<std::mutex> lock(display_dispatch_mutex_);
-      display_dispatch_cv_.wait(lock, [this] {
-        return stop_display_event_thread_ || !display_dispatch_scheduled_;
-      });
-      if (stop_display_event_thread_) {
-        return;
-      }
-    }
-
-    struct pollfd poll_fd = {
-        display_fd_,
-        static_cast<short>(POLLIN | POLLERR | POLLHUP | POLLNVAL),
-        0,
-    };
-
-    const int poll_result = poll(&poll_fd, 1, 50);
-    if (poll_result < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      FT_LOG(Error) << "Wayland display poll failed.";
-      return;
-    }
-    if (poll_result == 0) {
-      continue;
-    }
-
-    if (poll_fd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-      FT_LOG(Error) << "Wayland display poll got an error condition.";
-      return;
-    }
-
-    if (poll_fd.revents & POLLIN) {
-      ScheduleDisplayDispatchOnMainThread();
-    }
-  }
-}
-
-void TizenWindowEcoreWl2::ScheduleDisplayDispatchOnMainThread() {
-  std::lock_guard<std::mutex> lock(display_dispatch_mutex_);
-  if (stop_display_event_thread_ || display_dispatch_scheduled_) {
+  display_source_ =
+      g_source_new(&kDisplaySourceFuncs, sizeof(WaylandDisplaySource));
+  if (!display_source_) {
+    FT_LOG(Error) << "Could not create a Wayland display source.";
     return;
   }
 
-  display_dispatch_scheduled_ = true;
-  display_dispatch_source_id_ =
-      g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, DispatchDisplayEventsOnMainThread,
-                      this, nullptr);
+  display_read_prepared_ = false;
+
+  auto* display_source = AsWaylandDisplaySource(display_source_);
+  display_source->window = this;
+  display_source->poll_fd.fd = display_fd_;
+  display_source->poll_fd.events = GetDisplaySourcePollEvents();
+  display_source->poll_fd.revents = 0;
+
+  // Keep the Wayland read/cancel cycle ahead of general default-priority work.
+  g_source_set_priority(display_source_, G_PRIORITY_HIGH);
+  g_source_add_poll(display_source_, &display_source->poll_fd);
+  g_source_attach(display_source_, nullptr);
 }
 
-bool TizenWindowEcoreWl2::DispatchDisplayEvents() {
-  if (!running_ || !wl2_display_ || display_fd_ < 0) {
+void TizenWindowEcoreWl2::StopDisplayEventSource() {
+  if (display_read_prepared_ && wl2_display_) {
+    wl_display_cancel_read(wl2_display_);
+  }
+  display_read_prepared_ = false;
+  display_flush_pending_ = false;
+
+  if (!display_source_) {
+    return;
+  }
+
+  g_source_destroy(display_source_);
+  g_source_unref(display_source_);
+  display_source_ = nullptr;
+}
+
+bool TizenWindowEcoreWl2::PrepareDisplayEventSource(int* timeout_ms) {
+  if (timeout_ms) {
+    *timeout_ms = -1;
+  }
+  if (!running_ || !wl2_display_) {
+    return false;
+  }
+  if (display_read_prepared_) {
     return false;
   }
 
-  // Drive the Wayland fd with the standard prepare-read-read-dispatch cycle so
-  // readable events are actually consumed instead of leaving the fd hot.
   while (wl_display_prepare_read(wl2_display_) != 0) {
     const int dispatch_result = wl_display_dispatch_pending(wl2_display_);
     if (dispatch_result < 0) {
@@ -1072,70 +1045,115 @@ bool TizenWindowEcoreWl2::DispatchDisplayEvents() {
     }
   }
 
-  const int flush_result = wl_display_flush(wl2_display_);
-  if (flush_result < 0 && errno != EAGAIN) {
-    wl_display_cancel_read(wl2_display_);
-    FT_LOG(Error) << "Wayland display flush failed before read.";
+  if (wl_display_get_error(wl2_display_) != 0) {
+    FT_LOG(Error) << "Wayland display reported an error while preparing read.";
     return false;
   }
 
-  struct pollfd poll_fd = {
-      display_fd_,
-      static_cast<short>(POLLIN | POLLERR | POLLHUP | POLLNVAL),
-      0,
-  };
-  const int poll_result = poll(&poll_fd, 1, 0);
-  if (poll_result <= 0) {
-    wl_display_cancel_read(wl2_display_);
-    return true;
-  }
-  if (poll_fd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
-    wl_display_cancel_read(wl2_display_);
-    FT_LOG(Error) << "Wayland display read poll got an error condition.";
-    return false;
-  }
-  if (!(poll_fd.revents & POLLIN)) {
-    wl_display_cancel_read(wl2_display_);
-    return true;
-  }
+  display_read_prepared_ = true;
+  return false;
+}
 
-  if (wl_display_read_events(wl2_display_) < 0) {
-    FT_LOG(Error) << "Wayland display read failed.";
+bool TizenWindowEcoreWl2::CheckDisplayEventSource(GIOCondition revents) {
+  if (!running_ || !wl2_display_) {
     return false;
   }
 
-  while (true) {
-    const int dispatch_result = wl_display_dispatch_pending(wl2_display_);
-    if (dispatch_result < 0) {
-      FT_LOG(Error) << "Wayland display dispatch failed.";
-      return false;
+  return revents != 0 || display_read_prepared_;
+}
+
+bool TizenWindowEcoreWl2::DispatchDisplayEventSource(GIOCondition revents) {
+  if (!running_ || !wl2_display_) {
+    return false;
+  }
+
+  if (revents & static_cast<GIOCondition>(G_IO_ERR | G_IO_HUP | G_IO_NVAL)) {
+    if (display_read_prepared_) {
+      wl_display_cancel_read(wl2_display_);
+      display_read_prepared_ = false;
     }
-    if (dispatch_result == 0) {
-      break;
+    FT_LOG(Error) << "Wayland display source reported an error condition.";
+    return false;
+  }
+
+  if (display_read_prepared_) {
+    if (revents & G_IO_IN) {
+      const int read_result = wl_display_read_events(wl2_display_);
+      const int code = errno;
+      display_read_prepared_ = false;
+      if (read_result < 0 && code != EAGAIN) {
+        FT_LOG(Error) << "Wayland display read failed.";
+        return false;
+      }
+    } else {
+      wl_display_cancel_read(wl2_display_);
+      display_read_prepared_ = false;
+    }
+  }
+
+  const int dispatch_result = wl_display_dispatch_pending(wl2_display_);
+  if (dispatch_result < 0) {
+    FT_LOG(Error) << "Wayland display dispatch failed.";
+    return false;
+  }
+
+  if (revents & G_IO_OUT) {
+    if (!FlushDisplay()) {
+      return false;
     }
   }
 
   return true;
 }
 
-gboolean TizenWindowEcoreWl2::DispatchDisplayEventsOnMainThread(gpointer data) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self) {
-    return G_SOURCE_REMOVE;
+void TizenWindowEcoreWl2::UpdateDisplaySourcePollEvents() {
+  if (!display_source_) {
+    return;
   }
 
-  {
-    std::lock_guard<std::mutex> lock(self->display_dispatch_mutex_);
-    self->display_dispatch_source_id_ = 0;
+  auto* display_source = AsWaylandDisplaySource(display_source_);
+  display_source->poll_fd.events = GetDisplaySourcePollEvents();
+  GMainContext* context = g_source_get_context(display_source_);
+  if (context) {
+    g_main_context_wakeup(context);
   }
-  self->DispatchDisplayEvents();
+}
 
-  {
-    std::lock_guard<std::mutex> lock(self->display_dispatch_mutex_);
-    self->display_dispatch_scheduled_ = false;
+gushort TizenWindowEcoreWl2::GetDisplaySourcePollEvents() const {
+  gushort events = static_cast<gushort>(G_IO_IN | G_IO_ERR | G_IO_HUP |
+                                        G_IO_NVAL);
+  if (display_flush_pending_) {
+    events = static_cast<gushort>(events | G_IO_OUT);
   }
-  self->display_dispatch_cv_.notify_all();
-  return G_SOURCE_REMOVE;
+  return events;
+}
+
+gboolean TizenWindowEcoreWl2::HandleDisplaySourcePrepare(GSource* source,
+                                                         gint* timeout_ms) {
+  auto* display_source = AsWaylandDisplaySource(source);
+  return display_source && display_source->window
+             ? display_source->window->PrepareDisplayEventSource(timeout_ms)
+             : G_SOURCE_REMOVE;
+}
+
+gboolean TizenWindowEcoreWl2::HandleDisplaySourceCheck(GSource* source) {
+  auto* display_source = AsWaylandDisplaySource(source);
+  return display_source && display_source->window
+             ? display_source->window->CheckDisplayEventSource(
+                   static_cast<GIOCondition>(display_source->poll_fd.revents))
+             : G_SOURCE_REMOVE;
+}
+
+gboolean TizenWindowEcoreWl2::HandleDisplaySourceDispatch(GSource* source,
+                                                          GSourceFunc callback,
+                                                          gpointer user_data) {
+  static_cast<void>(callback);
+  static_cast<void>(user_data);
+  auto* display_source = AsWaylandDisplaySource(source);
+  return display_source && display_source->window
+             ? display_source->window->DispatchDisplayEventSource(
+                   static_cast<GIOCondition>(display_source->poll_fd.revents))
+             : G_SOURCE_REMOVE;
 }
 
 bool TizenWindowEcoreWl2::FlushDisplay() {
@@ -1144,7 +1162,21 @@ bool TizenWindowEcoreWl2::FlushDisplay() {
   }
 
   const int flush_result = wl_display_flush(wl2_display_);
-  if (flush_result < 0 && errno != EAGAIN) {
+  if (flush_result >= 0) {
+    display_flush_pending_ = false;
+    UpdateDisplaySourcePollEvents();
+    return true;
+  }
+
+  if (errno == EAGAIN) {
+    display_flush_pending_ = true;
+    UpdateDisplaySourcePollEvents();
+    return true;
+  }
+
+  display_flush_pending_ = false;
+  UpdateDisplaySourcePollEvents();
+  if (flush_result < 0) {
     FT_LOG(Error) << "Wayland display flush failed.";
     return false;
   }
@@ -1377,7 +1409,7 @@ void TizenWindowEcoreWl2::HandleXdgSurfaceConfigure(void* data,
 
   if (self->wl2_surface_) {
     wl_surface_commit(self->wl2_surface_);
-    wl_display_flush(self->wl2_display_);
+    self->FlushDisplay();
   }
 }
 
