@@ -24,9 +24,12 @@ class TizenRendererGL : public TizenRenderer {
 
   virtual bool OnMakeResourceCurrent() = 0;
 
-  virtual bool OnPresent() = 0;
+  virtual bool OnPresent(const FlutterPresentInfo* present_info) = 0;
 
   virtual uint32_t OnGetFBO() = 0;
+
+  virtual void PopulateExistingDamage(intptr_t fbo_id,
+                                      FlutterDamage* existing_damage) = 0;
 
   virtual void* OnProcResolver(const char* name) = 0;
 

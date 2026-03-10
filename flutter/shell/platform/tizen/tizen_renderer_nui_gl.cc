@@ -12,8 +12,8 @@ TizenRendererNuiGL::TizenRendererNuiGL(TizenViewNui* view_nui,
 
 TizenRendererNuiGL::~TizenRendererNuiGL() {}
 
-bool TizenRendererNuiGL::OnPresent() {
-  bool result = TizenRendererEgl::OnPresent();
+bool TizenRendererNuiGL::OnPresent(const FlutterPresentInfo* present_info) {
+  bool result = TizenRendererEgl::OnPresent(present_info);
   view_->RequestRendering();
   return result;
 }

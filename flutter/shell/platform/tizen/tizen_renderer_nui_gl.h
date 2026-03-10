@@ -19,7 +19,7 @@ class TizenRendererNuiGL : public TizenRendererEgl {
 
   virtual ~TizenRendererNuiGL();
 
-  bool OnPresent() override;
+  bool OnPresent(const FlutterPresentInfo* present_info) override;
 
  private:
   TizenViewNui* view_;

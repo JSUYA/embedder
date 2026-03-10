@@ -7,7 +7,9 @@
 
 #include <EGL/egl.h>
 
+#include <deque>
 #include <string>
+#include <vector>
 
 #include "flutter/shell/platform/tizen/external_texture.h"
 #include "flutter/shell/platform/tizen/tizen_renderer.h"
@@ -28,9 +30,13 @@ class TizenRendererEgl : public TizenRendererGL {
 
   virtual bool OnMakeResourceCurrent() override;
 
-  virtual bool OnPresent() override;
+  virtual bool OnPresent(const FlutterPresentInfo* present_info) override;
 
   virtual uint32_t OnGetFBO() override;
+
+  virtual void PopulateExistingDamage(
+      intptr_t fbo_id,
+      FlutterDamage* existing_damage) override;
 
   virtual void* OnProcResolver(const char* name) override;
 
@@ -50,7 +56,23 @@ class TizenRendererEgl : public TizenRendererGL {
   void DestroySurface() override;
 
  private:
+  using EglSwapBuffersWithDamageProc =
+      EGLBoolean (*)(EGLDisplay, EGLSurface, const EGLint*, EGLint);
+  using EglSetDamageRegionProc =
+      EGLBoolean (*)(EGLDisplay, EGLSurface, EGLint*, EGLint);
+
   bool ChooseEGLConfiguration();
+
+  void ResetDamageTracking();
+
+  bool InitializePartialUpdateSupport();
+
+  bool QuerySurfaceSize(EGLint* width, EGLint* height) const;
+
+  std::vector<EGLint> ConvertDamageToEglRects(
+      const FlutterDamage& damage) const;
+
+  void SetFullSurfaceDamage(FlutterDamage* damage);
 
   void PrintEGLError();
 
@@ -65,6 +87,13 @@ class TizenRendererEgl : public TizenRendererGL {
   bool enable_impeller_;
   bool uses_wayland_display_ = false;
   bool swap_interval_configured_ = false;
+  int32_t surface_width_ = 0;
+  int32_t surface_height_ = 0;
+  bool supports_buffer_age_ = false;
+  EglSwapBuffersWithDamageProc egl_swap_buffers_with_damage_ = nullptr;
+  EglSetDamageRegionProc egl_set_damage_region_ = nullptr;
+  std::deque<FlutterRect> frame_damage_history_;
+  std::vector<FlutterRect> existing_damage_storage_;
 };
 
 }  // namespace flutter

@@ -39,12 +39,14 @@ FlutterRendererConfig TizenRendererGL::GetRendererConfig() {
     }
     return dynamic_cast<TizenRendererGL*>(engine->renderer())->OnClearCurrent();
   };
-  config.open_gl.present = [](void* user_data) -> bool {
+  config.open_gl.present_with_info =
+      [](void* user_data, const FlutterPresentInfo* present_info) -> bool {
     auto* engine = static_cast<FlutterTizenEngine*>(user_data);
     if (!engine->view()) {
       return false;
     }
-    return dynamic_cast<TizenRendererGL*>(engine->renderer())->OnPresent();
+    return dynamic_cast<TizenRendererGL*>(engine->renderer())
+        ->OnPresent(present_info);
   };
   config.open_gl.fbo_callback = [](void* user_data) -> uint32_t {
     auto* engine = static_cast<FlutterTizenEngine*>(user_data);
@@ -79,6 +81,18 @@ FlutterRendererConfig TizenRendererGL::GetRendererConfig() {
     }
     return engine->texture_registrar()->PopulateGLTexture(texture_id, width,
                                                           height, texture);
+  };
+  config.open_gl.populate_existing_damage =
+      [](void* user_data, const intptr_t fbo_id,
+         FlutterDamage* existing_damage) -> void {
+    auto* engine = static_cast<FlutterTizenEngine*>(user_data);
+    if (!engine->view()) {
+      existing_damage->num_rects = 0;
+      existing_damage->damage = nullptr;
+      return;
+    }
+    dynamic_cast<TizenRendererGL*>(engine->renderer())
+        ->PopulateExistingDamage(fbo_id, existing_damage);
   };
   return config;
 }

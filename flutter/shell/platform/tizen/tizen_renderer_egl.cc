@@ -7,6 +7,10 @@
 #include <EGL/eglext.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #ifdef NUI_SUPPORT
 #include <dali/devel-api/adaptor-framework/native-image-source-queue.h>
 #endif
@@ -18,10 +22,68 @@
 #include "flutter/shell/platform/tizen/external_texture_surface_egl.h"
 #include "flutter/shell/platform/tizen/logger.h"
 
+#ifndef EGL_BUFFER_AGE_EXT
+#define EGL_BUFFER_AGE_EXT 0x313D
+#endif
+
 namespace flutter {
 
 // [TEMP_DIAG_REMOVE] Verbose runtime diagnostics for blank-screen triage.
 #define TEMP_DIAG_EGL(msg) do { } while (0)  // [TEMP_DIAG_REMOVE]
+
+namespace {
+
+constexpr size_t kMaxDamageHistory = 10;
+
+bool HasExtensionToken(const std::string& extensions, const char* name) {
+  const size_t name_length = strlen(name);
+  size_t offset = extensions.find(name);
+  while (offset != std::string::npos) {
+    const bool has_prefix =
+        offset == 0 || extensions[offset - 1] == ' ';
+    const size_t suffix_offset = offset + name_length;
+    const bool has_suffix =
+        suffix_offset == extensions.size() || extensions[suffix_offset] == ' ';
+    if (has_prefix && has_suffix) {
+      return true;
+    }
+    offset = extensions.find(name, offset + name_length);
+  }
+  return false;
+}
+
+bool IsEmptyRect(const FlutterRect& rect) {
+  return rect.right <= rect.left || rect.bottom <= rect.top;
+}
+
+FlutterRect MakeEmptyRect() {
+  return FlutterRect{0, 0, 0, 0};
+}
+
+FlutterRect UnionRect(const FlutterRect& lhs, const FlutterRect& rhs) {
+  if (IsEmptyRect(lhs)) {
+    return rhs;
+  }
+  if (IsEmptyRect(rhs)) {
+    return lhs;
+  }
+  return FlutterRect{
+      std::min(lhs.left, rhs.left), std::min(lhs.top, rhs.top),
+      std::max(lhs.right, rhs.right), std::max(lhs.bottom, rhs.bottom)};
+}
+
+FlutterRect MergeDamageRectangles(const FlutterDamage& damage) {
+  FlutterRect merged = MakeEmptyRect();
+  if (damage.damage == nullptr) {
+    return merged;
+  }
+  for (size_t i = 0; i < damage.num_rects; ++i) {
+    merged = UnionRect(merged, damage.damage[i]);
+  }
+  return merged;
+}
+
+}  // namespace
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
                                    bool enable_impeller)
@@ -55,6 +117,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
   TEMP_DIAG_EGL("CreateSurface begin. render_target=" << render_target
                << " display=" << render_target_display << " size=" << width
                << "x" << height);
+  surface_width_ = width;
+  surface_height_ = height;
+  ResetDamageTracking();
   swap_interval_configured_ = false;
   if (render_target_display) {
     uses_wayland_display_ = true;
@@ -88,7 +153,8 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     return false;
   }
 
-  egl_extension_str_ = eglQueryString(egl_display_, EGL_EXTENSIONS);
+  const char* extensions = eglQueryString(egl_display_, EGL_EXTENSIONS);
+  egl_extension_str_ = extensions ? extensions : "";
 
   {
     const EGLint attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
@@ -151,6 +217,7 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     }
   }
 
+  InitializePartialUpdateSupport();
   is_valid_ = true;
   return true;
 }
@@ -183,6 +250,9 @@ void TizenRendererEgl::DestroySurface() {
     eglTerminate(egl_display_);
     egl_display_ = EGL_NO_DISPLAY;
   }
+  ResetDamageTracking();
+  surface_width_ = 0;
+  surface_height_ = 0;
   uses_wayland_display_ = false;
   swap_interval_configured_ = false;
 }
@@ -277,6 +347,125 @@ bool TizenRendererEgl::ChooseEGLConfiguration() {
   return true;
 }
 
+void TizenRendererEgl::ResetDamageTracking() {
+  supports_buffer_age_ = false;
+  egl_swap_buffers_with_damage_ = nullptr;
+  egl_set_damage_region_ = nullptr;
+  frame_damage_history_.clear();
+  existing_damage_storage_.clear();
+}
+
+bool TizenRendererEgl::InitializePartialUpdateSupport() {
+  if (!uses_wayland_display_) {
+    return false;
+  }
+
+  supports_buffer_age_ =
+      HasExtensionToken(egl_extension_str_, "EGL_EXT_buffer_age") ||
+      HasExtensionToken(egl_extension_str_, "EGL_KHR_partial_update");
+
+  if (HasExtensionToken(egl_extension_str_, "EGL_KHR_partial_update")) {
+    egl_set_damage_region_ = reinterpret_cast<EglSetDamageRegionProc>(
+        eglGetProcAddress("eglSetDamageRegionKHR"));
+  }
+
+  if (HasExtensionToken(egl_extension_str_, "EGL_EXT_swap_buffers_with_damage")) {
+    egl_swap_buffers_with_damage_ =
+        reinterpret_cast<EglSwapBuffersWithDamageProc>(
+            eglGetProcAddress("eglSwapBuffersWithDamageEXT"));
+  }
+  if (!egl_swap_buffers_with_damage_ &&
+      HasExtensionToken(egl_extension_str_, "EGL_KHR_swap_buffers_with_damage")) {
+    egl_swap_buffers_with_damage_ =
+        reinterpret_cast<EglSwapBuffersWithDamageProc>(
+            eglGetProcAddress("eglSwapBuffersWithDamageKHR"));
+  }
+  if (!egl_swap_buffers_with_damage_) {
+    egl_swap_buffers_with_damage_ =
+        reinterpret_cast<EglSwapBuffersWithDamageProc>(
+            eglGetProcAddress("eglSwapBuffersWithDamage"));
+  }
+
+  return supports_buffer_age_ || egl_set_damage_region_ ||
+         egl_swap_buffers_with_damage_;
+}
+
+bool TizenRendererEgl::QuerySurfaceSize(EGLint* width, EGLint* height) const {
+  EGLint queried_width = surface_width_;
+  EGLint queried_height = surface_height_;
+  if (egl_display_ != EGL_NO_DISPLAY && egl_surface_ != EGL_NO_SURFACE) {
+    if (!eglQuerySurface(egl_display_, egl_surface_, EGL_WIDTH,
+                         &queried_width)) {
+      queried_width = surface_width_;
+    }
+    if (!eglQuerySurface(egl_display_, egl_surface_, EGL_HEIGHT,
+                         &queried_height)) {
+      queried_height = surface_height_;
+    }
+  }
+  if (queried_width <= 0 || queried_height <= 0) {
+    return false;
+  }
+  if (width) {
+    *width = queried_width;
+  }
+  if (height) {
+    *height = queried_height;
+  }
+  return true;
+}
+
+std::vector<EGLint> TizenRendererEgl::ConvertDamageToEglRects(
+    const FlutterDamage& damage) const {
+  std::vector<EGLint> rects;
+  if (damage.damage == nullptr) {
+    return rects;
+  }
+  EGLint surface_width = 0;
+  EGLint surface_height = 0;
+  if (!QuerySurfaceSize(&surface_width, &surface_height)) {
+    return rects;
+  }
+
+  rects.reserve(damage.num_rects * 4);
+  for (size_t i = 0; i < damage.num_rects; ++i) {
+    const auto& rect = damage.damage[i];
+    const EGLint left = std::min(
+        std::max(static_cast<EGLint>(std::floor(rect.left)), 0), surface_width);
+    const EGLint top = std::min(
+        std::max(static_cast<EGLint>(std::floor(rect.top)), 0),
+        surface_height);
+    const EGLint right = std::min(
+        std::max(static_cast<EGLint>(std::ceil(rect.right)), 0), surface_width);
+    const EGLint bottom = std::min(
+        std::max(static_cast<EGLint>(std::ceil(rect.bottom)), 0),
+        surface_height);
+    if (right <= left || bottom <= top) {
+      continue;
+    }
+    rects.push_back(left);
+    rects.push_back(surface_height - bottom);
+    rects.push_back(right - left);
+    rects.push_back(bottom - top);
+  }
+  return rects;
+}
+
+void TizenRendererEgl::SetFullSurfaceDamage(FlutterDamage* damage) {
+  EGLint width = 0;
+  EGLint height = 0;
+  if (!QuerySurfaceSize(&width, &height)) {
+    damage->num_rects = 0;
+    damage->damage = nullptr;
+    return;
+  }
+  existing_damage_storage_.assign(
+      1, FlutterRect{0, 0, static_cast<double>(width),
+                     static_cast<double>(height)});
+  damage->num_rects = existing_damage_storage_.size();
+  damage->damage = existing_damage_storage_.data();
+}
+
 bool TizenRendererEgl::OnMakeCurrent() {
   if (!IsValid()) {
     return false;
@@ -326,15 +515,52 @@ bool TizenRendererEgl::OnMakeResourceCurrent() {
   return true;
 }
 
-bool TizenRendererEgl::OnPresent() {
+bool TizenRendererEgl::OnPresent(const FlutterPresentInfo* present_info) {
   if (!IsValid()) {
     return false;
   }
 
-  if (eglSwapBuffers(egl_display_, egl_surface_) != EGL_TRUE) {
+  if (present_info && egl_set_damage_region_) {
+    auto buffer_rects = ConvertDamageToEglRects(present_info->buffer_damage);
+    if (egl_set_damage_region_(egl_display_, egl_surface_,
+                               buffer_rects.empty() ? nullptr
+                                                    : buffer_rects.data(),
+                               buffer_rects.size() / 4) != EGL_TRUE) {
+      PrintEGLError();
+      FT_LOG(Warn) << "Could not set EGL damage region.";
+      egl_set_damage_region_ = nullptr;
+    }
+  }
+
+  EGLBoolean swap_result = EGL_FALSE;
+  if (present_info && egl_swap_buffers_with_damage_) {
+    auto frame_rects = ConvertDamageToEglRects(present_info->frame_damage);
+    swap_result = egl_swap_buffers_with_damage_(
+        egl_display_, egl_surface_,
+        frame_rects.empty() ? nullptr : frame_rects.data(),
+        frame_rects.size() / 4);
+    if (swap_result != EGL_TRUE) {
+      PrintEGLError();
+      FT_LOG(Warn) << "Could not swap EGL buffers with damage.";
+      egl_swap_buffers_with_damage_ = nullptr;
+      swap_result = eglSwapBuffers(egl_display_, egl_surface_);
+    }
+  } else {
+    swap_result = eglSwapBuffers(egl_display_, egl_surface_);
+  }
+
+  if (swap_result != EGL_TRUE) {
     PrintEGLError();
     FT_LOG(Error) << "Could not swap EGL buffers.";
     return false;
+  }
+
+  if (present_info && uses_wayland_display_) {
+    frame_damage_history_.push_back(MergeDamageRectangles(
+        present_info->frame_damage));
+    if (frame_damage_history_.size() > kMaxDamageHistory) {
+      frame_damage_history_.pop_front();
+    }
   }
 
   // [TEMP_DIAG_REMOVE] Avoid per-frame logging; it severely impacts pointer
@@ -347,6 +573,52 @@ uint32_t TizenRendererEgl::OnGetFBO() {
     return 999;
   }
   return 0;
+}
+
+void TizenRendererEgl::PopulateExistingDamage(
+    intptr_t fbo_id,
+    FlutterDamage* existing_damage) {
+  existing_damage->num_rects = 0;
+  existing_damage->damage = nullptr;
+
+  if (!uses_wayland_display_ || fbo_id != 0 || !supports_buffer_age_) {
+    SetFullSurfaceDamage(existing_damage);
+    return;
+  }
+
+  EGLint age = 0;
+  if (eglQuerySurface(egl_display_, egl_surface_, EGL_BUFFER_AGE_EXT, &age) !=
+          EGL_TRUE ||
+      age <= 0) {
+    frame_damage_history_.clear();
+    existing_damage_storage_.clear();
+    SetFullSurfaceDamage(existing_damage);
+    return;
+  }
+
+  if (age == 1) {
+    return;
+  }
+
+  const size_t required_history = static_cast<size_t>(age - 1);
+  if (required_history > frame_damage_history_.size() ||
+      required_history > kMaxDamageHistory) {
+    SetFullSurfaceDamage(existing_damage);
+    return;
+  }
+
+  FlutterRect merged = MakeEmptyRect();
+  for (size_t i = 0; i < required_history; ++i) {
+    merged = UnionRect(merged, frame_damage_history_[frame_damage_history_.size() -
+                                                     1 - i]);
+  }
+  if (IsEmptyRect(merged)) {
+    return;
+  }
+
+  existing_damage_storage_.assign(1, merged);
+  existing_damage->num_rects = existing_damage_storage_.size();
+  existing_damage->damage = existing_damage_storage_.data();
 }
 
 void TizenRendererEgl::PrintEGLError() {
@@ -383,7 +655,10 @@ bool TizenRendererEgl::IsSupportedExtension(const char* name) {
 }
 
 void TizenRendererEgl::ResizeSurface(int32_t width, int32_t height) {
-  // Do nothing.
+  surface_width_ = width;
+  surface_height_ = height;
+  frame_damage_history_.clear();
+  existing_damage_storage_.clear();
 }
 
 void* TizenRendererEgl::OnProcResolver(const char* name) {
