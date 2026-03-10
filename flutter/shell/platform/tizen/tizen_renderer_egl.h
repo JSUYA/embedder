@@ -63,6 +63,8 @@ class TizenRendererEgl : public TizenRendererGL {
 
   std::string egl_extension_str_;
   bool enable_impeller_;
+  bool uses_wayland_display_ = false;
+  bool swap_interval_configured_ = false;
 };
 
 }  // namespace flutter

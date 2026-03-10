@@ -55,7 +55,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
   TEMP_DIAG_EGL("CreateSurface begin. render_target=" << render_target
                << " display=" << render_target_display << " size=" << width
                << "x" << height);
+  swap_interval_configured_ = false;
   if (render_target_display) {
+    uses_wayland_display_ = true;
     auto* wayland_display = static_cast<struct wl_display*>(render_target_display);
 
     egl_display_ = eglGetDisplay(wayland_display);
@@ -70,6 +72,7 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
       }
     }
   } else {
+    uses_wayland_display_ = false;
     egl_display_ = eglGetDisplay(tbm_dummy_display_create());
   }
 
@@ -180,6 +183,8 @@ void TizenRendererEgl::DestroySurface() {
     eglTerminate(egl_display_);
     egl_display_ = EGL_NO_DISPLAY;
   }
+  uses_wayland_display_ = false;
+  swap_interval_configured_ = false;
 }
 
 bool TizenRendererEgl::ChooseEGLConfiguration() {
@@ -281,6 +286,16 @@ bool TizenRendererEgl::OnMakeCurrent() {
     PrintEGLError();
     FT_LOG(Error) << "Could not make the onscreen context current.";
     return false;
+  }
+
+  if (uses_wayland_display_ && !swap_interval_configured_) {
+    // EFL's public Wayland EGL path disables EGL's own swap pacing and lets
+    // the Wayland/compositor path own presentation timing.
+    swap_interval_configured_ = true;
+    if (eglSwapInterval(egl_display_, 0) != EGL_TRUE) {
+      PrintEGLError();
+      FT_LOG(Warn) << "Could not disable EGL swap interval for Wayland.";
+    }
   }
   return true;
 }
