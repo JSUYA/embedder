@@ -20,6 +20,8 @@
 namespace flutter {
 
 class FlutterTizenEngine;
+class TizenViewBase;
+class WaylandFrameClient;
 
 class TdmClient {
  public:
@@ -50,12 +52,13 @@ class TdmClient {
 
 class TizenVsyncWaiter {
  public:
-  TizenVsyncWaiter(FlutterTizenEngine* engine);
+  TizenVsyncWaiter(FlutterTizenEngine* engine, TizenViewBase* view);
   virtual ~TizenVsyncWaiter();
   void AsyncWaitForVsync(intptr_t baton);
 
  private:
   std::shared_ptr<TdmClient> tdm_client_;
+  std::shared_ptr<WaylandFrameClient> wayland_frame_client_;
 };
 
 }  // namespace flutter

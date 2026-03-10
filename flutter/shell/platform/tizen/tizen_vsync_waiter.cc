@@ -5,21 +5,72 @@
 #include "tizen_vsync_waiter.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/logger.h"
+#include "flutter/shell/platform/tizen/tizen_view_base.h"
+#include "flutter/shell/platform/tizen/tizen_window_wayland.h"
 
 namespace flutter {
 
-TizenVsyncWaiter::TizenVsyncWaiter(FlutterTizenEngine* engine)
-    : tdm_client_(std::make_shared<TdmClient>(engine)) {}
+class WaylandFrameClient
+    : public std::enable_shared_from_this<WaylandFrameClient> {
+ public:
+  WaylandFrameClient(FlutterTizenEngine* engine, TizenWindowEcoreWl2* window)
+      : engine_(engine), window_(window) {}
+
+  bool IsValid() const { return window_ != nullptr; }
+
+  void OnEngineStop() {
+    std::lock_guard<std::mutex> lock(engine_mutex_);
+    engine_ = nullptr;
+  }
+
+  void AwaitVsync(intptr_t baton) {
+    if (!window_) {
+      return;
+    }
+
+    auto self = shared_from_this();
+    window_->AwaitFrameVsync(
+        [self, baton](uint64_t frame_start_time_nanos,
+                      uint64_t frame_target_time_nanos) {
+          std::lock_guard<std::mutex> lock(self->engine_mutex_);
+          if (self->engine_) {
+            self->engine_->OnVsync(baton, frame_start_time_nanos,
+                                   frame_target_time_nanos);
+          }
+        });
+  }
+
+ private:
+  FlutterTizenEngine* engine_ = nullptr;
+  TizenWindowEcoreWl2* window_ = nullptr;
+  std::mutex engine_mutex_;
+};
+
+TizenVsyncWaiter::TizenVsyncWaiter(FlutterTizenEngine* engine,
+                                   TizenViewBase* view) {
+  if (auto* window = dynamic_cast<TizenWindowEcoreWl2*>(view)) {
+    wayland_frame_client_ = std::make_shared<WaylandFrameClient>(engine, window);
+  } else {
+    tdm_client_ = std::make_shared<TdmClient>(engine);
+  }
+}
 
 TizenVsyncWaiter::~TizenVsyncWaiter() {
-  tdm_client_->OnEngineStop();
+  if (wayland_frame_client_) {
+    wayland_frame_client_->OnEngineStop();
+  }
+  if (tdm_client_) {
+    tdm_client_->OnEngineStop();
+  }
 }
 
 void TizenVsyncWaiter::AsyncWaitForVsync(intptr_t baton) {
-  if (tdm_client_->IsValid()) {
+  if (wayland_frame_client_ && wayland_frame_client_->IsValid()) {
+    wayland_frame_client_->AwaitVsync(baton);
+  } else if (tdm_client_ && tdm_client_->IsValid()) {
     tdm_client_->AwaitVblank(baton);
   } else {
-    FT_LOG(Error) << "tdm client is invalid, vsync cancelled";
+    FT_LOG(Error) << "vsync client is invalid, vsync cancelled";
   }
 }
 

@@ -209,7 +209,8 @@ bool FlutterTizenEngine::RunEngine() {
   };
 
   if (IsHeaded() && dynamic_cast<TizenRendererEgl*>(renderer_.get())) {
-    vsync_waiter_ = std::make_unique<TizenVsyncWaiter>(this);
+    vsync_waiter_ =
+        std::make_unique<TizenVsyncWaiter>(this, view_->tizen_view());
     args.vsync_callback = [](void* user_data, intptr_t baton) -> void {
       auto* engine = static_cast<FlutterTizenEngine*>(user_data);
       std::lock_guard<std::mutex> lock(engine->vsync_mutex_);

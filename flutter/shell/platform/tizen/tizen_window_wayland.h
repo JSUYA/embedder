@@ -16,6 +16,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -27,6 +29,8 @@ namespace flutter {
 
 class TizenWindowEcoreWl2 : public TizenWindow {
  public:
+  using FrameVsyncCallback = std::function<void(uint64_t, uint64_t)>;
+
   TizenWindowEcoreWl2(TizenGeometry geometry,
                       bool transparent,
                       bool focusable,
@@ -78,6 +82,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
     return data_device_manager_;
   }
   uint32_t GetLastInputSerial() const { return last_input_serial_; }
+  void AwaitFrameVsync(FrameVsyncCallback callback);
+  uint64_t GetFrameIntervalNanos() const;
 
  private:
   struct KeyboardState {
@@ -134,12 +140,19 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   void UpdateDisplaySourcePollEvents();
   gushort GetDisplaySourcePollEvents() const;
   bool FlushDisplay();
+  void RequestSurfaceFrameOnMainThread();
+  void CompleteFrameVsyncCallbacks(uint64_t frame_start_nanos,
+                                   uint64_t frame_target_nanos);
   void InvalidatePointerCursor();
   bool PreparePointerCursor();
   void ApplyPointerCursor();
   void UpdatePointerCursor();
   wl_cursor* ResolveCursorForKind(const std::string& kind) const;
 
+  static gboolean RegisterSurfaceFrameCallback(gpointer data);
+  static void HandleSurfaceFrameDone(void* data,
+                                     wl_callback* callback,
+                                     uint32_t time);
   static gboolean HandleDisplaySourcePrepare(GSource* source, gint* timeout_ms);
   static gboolean HandleDisplaySourceCheck(GSource* source);
   static gboolean HandleDisplaySourceDispatch(GSource* source,
@@ -320,6 +333,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   TizenGeometry geometry_ = {};
   TizenGeometry screen_geometry_ = {};
   int32_t output_transform_ = WL_OUTPUT_TRANSFORM_NORMAL;
+  int32_t output_refresh_millihz_ = 60000;
   int32_t dpi_ = 0;
   int32_t rotation_degree_ = 0;
   int32_t output_physical_width_mm_ = 0;
@@ -344,6 +358,11 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   GSource* display_source_ = nullptr;
   bool display_read_prepared_ = false;
   bool display_flush_pending_ = false;
+  std::mutex frame_vsync_mutex_;
+  std::vector<FrameVsyncCallback> pending_frame_vsync_callbacks_;
+  wl_callback* surface_frame_callback_ = nullptr;
+  bool surface_frame_request_posted_ = false;
+  guint surface_frame_request_source_id_ = 0;
 
   uint32_t resource_id_ = 0;
 

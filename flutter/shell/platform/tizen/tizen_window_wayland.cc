@@ -117,6 +117,10 @@ size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
 }
 
+uint64_t GetCurrentTimeNanos() {
+  return static_cast<uint64_t>(g_get_monotonic_time()) * 1000;
+}
+
 #ifdef TV_PROFILE
 std::string ResolveTvCursorName(const std::string& kind) {
   int pointer_size = -1;
@@ -525,6 +529,22 @@ void TizenWindowEcoreWl2::UnregisterEventHandlers() {
 void TizenWindowEcoreWl2::DestroyWindow() {
   running_ = false;
   pointer_inside_surface_ = false;
+
+  guint frame_request_source_id = 0;
+  {
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    surface_frame_request_posted_ = false;
+    frame_request_source_id = surface_frame_request_source_id_;
+    surface_frame_request_source_id_ = 0;
+    pending_frame_vsync_callbacks_.clear();
+    if (surface_frame_callback_) {
+      wl_callback_destroy(surface_frame_callback_);
+      surface_frame_callback_ = nullptr;
+    }
+  }
+  if (frame_request_source_id != 0) {
+    g_source_remove(frame_request_source_id);
+  }
 
   if (pointer_) {
     wl_pointer_destroy(pointer_);
@@ -1156,6 +1176,49 @@ gboolean TizenWindowEcoreWl2::HandleDisplaySourceDispatch(GSource* source,
              : G_SOURCE_REMOVE;
 }
 
+gboolean TizenWindowEcoreWl2::RegisterSurfaceFrameCallback(gpointer data) {
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    return G_SOURCE_REMOVE;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(self->frame_vsync_mutex_);
+    self->surface_frame_request_source_id_ = 0;
+  }
+  self->RequestSurfaceFrameOnMainThread();
+  return G_SOURCE_REMOVE;
+}
+
+void TizenWindowEcoreWl2::HandleSurfaceFrameDone(void* data,
+                                                 wl_callback* callback,
+                                                 uint32_t time) {
+  static_cast<void>(time);
+  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+  if (!self) {
+    if (callback) {
+      wl_callback_destroy(callback);
+    }
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(self->frame_vsync_mutex_);
+    if (callback == self->surface_frame_callback_) {
+      self->surface_frame_callback_ = nullptr;
+    }
+  }
+
+  if (callback) {
+    wl_callback_destroy(callback);
+  }
+
+  const uint64_t frame_start_nanos = GetCurrentTimeNanos();
+  self->CompleteFrameVsyncCallbacks(frame_start_nanos,
+                                    frame_start_nanos +
+                                        self->GetFrameIntervalNanos());
+}
+
 bool TizenWindowEcoreWl2::FlushDisplay() {
   if (!wl2_display_) {
     return false;
@@ -1182,6 +1245,113 @@ bool TizenWindowEcoreWl2::FlushDisplay() {
   }
 
   return true;
+}
+
+void TizenWindowEcoreWl2::AwaitFrameVsync(FrameVsyncCallback callback) {
+  if (!callback) {
+    return;
+  }
+
+  bool should_post_request = false;
+  {
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    pending_frame_vsync_callbacks_.push_back(std::move(callback));
+    if (!surface_frame_callback_ && !surface_frame_request_posted_) {
+      surface_frame_request_posted_ = true;
+      should_post_request = true;
+    }
+  }
+
+  if (should_post_request) {
+    const guint source_id = g_idle_add_full(
+        G_PRIORITY_HIGH, RegisterSurfaceFrameCallback, this, nullptr);
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    if (surface_frame_request_posted_) {
+      surface_frame_request_source_id_ = source_id;
+    } else if (source_id != 0) {
+      g_source_remove(source_id);
+    }
+  }
+}
+
+uint64_t TizenWindowEcoreWl2::GetFrameIntervalNanos() const {
+  const uint64_t refresh_millihz =
+      output_refresh_millihz_ > 0 ? static_cast<uint64_t>(output_refresh_millihz_)
+                                  : 60000ull;
+  return 1000000000000ull / refresh_millihz;
+}
+
+void TizenWindowEcoreWl2::RequestSurfaceFrameOnMainThread() {
+  {
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    surface_frame_request_posted_ = false;
+    if (surface_frame_callback_ || pending_frame_vsync_callbacks_.empty()) {
+      return;
+    }
+  }
+
+  if (!running_ || !wl2_surface_ || !wl2_display_) {
+    const uint64_t frame_start_nanos = GetCurrentTimeNanos();
+    CompleteFrameVsyncCallbacks(frame_start_nanos,
+                                frame_start_nanos + GetFrameIntervalNanos());
+    return;
+  }
+
+  wl_callback* frame_callback = wl_surface_frame(wl2_surface_);
+  if (!frame_callback) {
+    const uint64_t frame_start_nanos = GetCurrentTimeNanos();
+    CompleteFrameVsyncCallbacks(frame_start_nanos,
+                                frame_start_nanos + GetFrameIntervalNanos());
+    return;
+  }
+
+  static const wl_callback_listener kSurfaceFrameListener = {
+      HandleSurfaceFrameDone,
+  };
+
+  {
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    surface_frame_callback_ = frame_callback;
+  }
+
+  wl_callback_add_listener(frame_callback, &kSurfaceFrameListener, this);
+  wl_surface_commit(wl2_surface_);
+  FlushDisplay();
+}
+
+void TizenWindowEcoreWl2::CompleteFrameVsyncCallbacks(
+    uint64_t frame_start_nanos,
+    uint64_t frame_target_nanos) {
+  std::vector<FrameVsyncCallback> callbacks;
+  {
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    callbacks.swap(pending_frame_vsync_callbacks_);
+  }
+
+  for (auto& callback : callbacks) {
+    callback(frame_start_nanos, frame_target_nanos);
+  }
+
+  bool should_post_request = false;
+  {
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    if (!surface_frame_callback_ && !surface_frame_request_posted_ &&
+        !pending_frame_vsync_callbacks_.empty()) {
+      surface_frame_request_posted_ = true;
+      should_post_request = true;
+    }
+  }
+
+  if (should_post_request) {
+    const guint source_id = g_idle_add_full(
+        G_PRIORITY_HIGH, RegisterSurfaceFrameCallback, this, nullptr);
+    std::lock_guard<std::mutex> lock(frame_vsync_mutex_);
+    if (surface_frame_request_posted_) {
+      surface_frame_request_source_id_ = source_id;
+    } else if (source_id != 0) {
+      g_source_remove(source_id);
+    }
+  }
 }
 
 void TizenWindowEcoreWl2::InvalidatePointerCursor() {
@@ -1919,7 +2089,6 @@ void TizenWindowEcoreWl2::HandleOutputMode(void* data,
                                            int32_t width,
                                            int32_t height,
                                            int32_t refresh) {
-  (void)refresh;
   auto* self = static_cast<TizenWindowEcoreWl2*>(data);
   if (!self) {
     return;
@@ -1928,6 +2097,9 @@ void TizenWindowEcoreWl2::HandleOutputMode(void* data,
   if (flags & WL_OUTPUT_MODE_CURRENT) {
     self->screen_geometry_.width = width;
     self->screen_geometry_.height = height;
+    if (refresh > 0) {
+      self->output_refresh_millihz_ = refresh;
+    }
     self->UpdateOutputDpi();
   }
 }
