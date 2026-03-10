@@ -980,7 +980,7 @@ void TizenWindowEcoreWl2::StartDisplayEventSource() {
     return;
   }
 
-  static const GSourceFuncs kDisplaySourceFuncs = {
+  static GSourceFuncs kDisplaySourceFuncs = {
       HandleDisplaySourcePrepare,
       HandleDisplaySourceCheck,
       HandleDisplaySourceDispatch,
