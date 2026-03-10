@@ -134,6 +134,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   void RunDisplayEventThread();
   void ScheduleDisplayDispatchOnMainThread();
   bool DispatchDisplayEvents();
+  gint64 GetHoverMotionDispatchIntervalUs() const;
   void SchedulePointerMotion(size_t timestamp);
   void FlushPendingPointerMotion();
   void CancelPendingPointerMotion();
@@ -347,13 +348,14 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   gint64 last_pointer_motion_dispatch_time_us_ = 0;
 
   uint32_t resource_id_ = 0;
+  int32_t output_refresh_rate_millihz_ = 60000;
 
 #ifdef TV_PROFILE
   bool pointing_device_support_ = true;
   bool floating_menu_support_ = true;
   bool show_unsupported_toast_ = false;
-  void* tv_system_window_handle_ = nullptr;
   bool tv_cursor_configured_ = false;
+  bool using_tv_cursor_theme_ = false;
   uint32_t tizen_cursor_global_id_ = 0;
 #endif
 };

@@ -115,7 +115,6 @@ template("embedder") {
       "capi-system-info",
       "capi-system-system-settings",
       "dlog",
-      "ecore_wl2",
       "eina",
       "gio-2.0",
       "feedback",
