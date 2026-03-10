@@ -342,8 +342,9 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   bool stop_display_event_thread_ = false;
   bool display_dispatch_scheduled_ = false;
   guint display_dispatch_source_id_ = 0;
-  guint pointer_motion_idle_id_ = 0;
+  guint pointer_motion_source_id_ = 0;
   bool pointer_motion_pending_ = false;
+  gint64 last_pointer_motion_dispatch_time_us_ = 0;
 
   uint32_t resource_id_ = 0;
 

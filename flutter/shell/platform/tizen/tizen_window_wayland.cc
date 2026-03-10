@@ -53,6 +53,8 @@ constexpr uint32_t kEcoreEventModifierCaps = 0x0040;
 
 constexpr uint32_t kEcoreDeviceClassKeyboard = 2;
 constexpr uint32_t kEcoreDeviceSubclassNone = 0;
+constexpr gint64 kHoverMotionDispatchIntervalUs =
+    16 * G_TIME_SPAN_MILLISECOND;
 
 int32_t ToRotationDegree(int32_t transform) {
   switch (transform) {
@@ -1044,11 +1046,29 @@ void TizenWindowEcoreWl2::SchedulePointerMotion(size_t timestamp) {
   pending_pointer_motion_timestamp_ = timestamp;
   pointer_motion_pending_ = true;
 
-  if (pointer_motion_idle_id_ != 0) {
+  if (pointer_motion_source_id_ != 0) {
     return;
   }
 
-  pointer_motion_idle_id_ = g_idle_add_full(
+  const gint64 now = g_get_monotonic_time();
+  gint64 delay_us = 0;
+  if (last_pointer_motion_dispatch_time_us_ != 0) {
+    const gint64 next_dispatch_time =
+        last_pointer_motion_dispatch_time_us_ + kHoverMotionDispatchIntervalUs;
+    if (next_dispatch_time > now) {
+      delay_us = next_dispatch_time - now;
+    }
+  }
+
+  if (delay_us > 0) {
+    const guint delay_ms = static_cast<guint>((delay_us + 999) / 1000);
+    pointer_motion_source_id_ = g_timeout_add_full(
+        G_PRIORITY_DEFAULT_IDLE, std::max(delay_ms, 1u),
+        DispatchPendingPointerMotion, this, nullptr);
+    return;
+  }
+
+  pointer_motion_source_id_ = g_idle_add_full(
       G_PRIORITY_DEFAULT_IDLE, DispatchPendingPointerMotion, this, nullptr);
 }
 
@@ -1058,12 +1078,13 @@ void TizenWindowEcoreWl2::FlushPendingPointerMotion() {
     return;
   }
 
-  if (pointer_motion_idle_id_ != 0) {
-    g_source_remove(pointer_motion_idle_id_);
-    pointer_motion_idle_id_ = 0;
+  if (pointer_motion_source_id_ != 0) {
+    g_source_remove(pointer_motion_source_id_);
+    pointer_motion_source_id_ = 0;
   }
 
   pointer_motion_pending_ = false;
+  last_pointer_motion_dispatch_time_us_ = g_get_monotonic_time();
   view_delegate_->OnPointerMove(pointer_x_, pointer_y_,
                                 pending_pointer_motion_timestamp_,
                                 kFlutterPointerDeviceKindMouse, 0);
@@ -1071,9 +1092,9 @@ void TizenWindowEcoreWl2::FlushPendingPointerMotion() {
 }
 
 void TizenWindowEcoreWl2::CancelPendingPointerMotion() {
-  if (pointer_motion_idle_id_ != 0) {
-    g_source_remove(pointer_motion_idle_id_);
-    pointer_motion_idle_id_ = 0;
+  if (pointer_motion_source_id_ != 0) {
+    g_source_remove(pointer_motion_source_id_);
+    pointer_motion_source_id_ = 0;
   }
   pointer_motion_pending_ = false;
   pending_pointer_motion_timestamp_ = 0;
@@ -1139,7 +1160,7 @@ gboolean TizenWindowEcoreWl2::DispatchPendingPointerMotion(gpointer data) {
     return G_SOURCE_REMOVE;
   }
 
-  self->pointer_motion_idle_id_ = 0;
+  self->pointer_motion_source_id_ = 0;
   self->FlushPendingPointerMotion();
   return G_SOURCE_REMOVE;
 }
@@ -1378,6 +1399,7 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->UpdatePointerCursor();
 
   if (self->view_delegate_) {
+    self->last_pointer_motion_dispatch_time_us_ = g_get_monotonic_time();
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                         GetCurrentTimeMillis(),
                                         kFlutterPointerDeviceKindMouse, 0);
