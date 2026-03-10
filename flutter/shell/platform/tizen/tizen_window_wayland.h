@@ -352,6 +352,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   bool pointing_device_support_ = true;
   bool floating_menu_support_ = true;
   bool show_unsupported_toast_ = false;
+  void* tv_system_window_handle_ = nullptr;
   bool tv_cursor_configured_ = false;
   uint32_t tizen_cursor_global_id_ = 0;
 #endif

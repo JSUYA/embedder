@@ -8,6 +8,7 @@
 #include <app.h>
 #include <app_preference.h>
 #include <dlfcn.h>
+#include <ecore-wl2-1/Ecore_Wl2.h>
 #include <time.h>
 #include <vconf.h>
 #endif
@@ -55,6 +56,14 @@ constexpr uint32_t kEcoreDeviceClassKeyboard = 2;
 constexpr uint32_t kEcoreDeviceSubclassNone = 0;
 constexpr gint64 kHoverMotionDispatchIntervalUs =
     16 * G_TIME_SPAN_MILLISECOND;
+
+#ifdef TV_PROFILE
+constexpr char kSysMouseCursorPointerSizeVConfKey[] =
+    "db/menu/system/mouse-pointer-size";
+constexpr char kSysPointingDeviceSupportToastSharedPreferenceKey[] =
+    "flutter-tizen/preference/pointing-device-support-toast";
+constexpr char kEcoreWL2InputCursorThemeName[] = "vd-cursors";
+#endif
 
 int32_t ToRotationDegree(int32_t transform) {
   switch (transform) {
@@ -106,6 +115,144 @@ size_t GetCurrentTimeMillis() {
   return static_cast<size_t>(g_get_monotonic_time() / 1000);
 }
 
+#ifdef TV_PROFILE
+time_t GetBootTimeEpoch() {
+  struct timespec now, boot_time;
+  if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+    FT_LOG(Error) << "Fail to get clock_gettime(CLOCK_REALTIME).";
+    return -1;
+  }
+  if (clock_gettime(CLOCK_BOOTTIME, &boot_time) != 0) {
+    FT_LOG(Error) << "Fail to get clock_gettime(CLOCK_BOOTTIME).";
+    return -1;
+  }
+  time_t boot_time_epoch = now.tv_sec - boot_time.tv_sec;
+  return (boot_time_epoch / 10) * 10;
+}
+
+bool PreferenceItemCallback(const char* key, void* user_data) {
+  char* app_id = static_cast<char*>(user_data);
+  if (!app_id || !key) {
+    return true;
+  }
+
+  std::string preference_key =
+      std::string(kSysPointingDeviceSupportToastSharedPreferenceKey) + "/" +
+      app_id;
+  if (!strncmp(key, preference_key.c_str(), preference_key.length())) {
+    preference_remove(key);
+  }
+  return true;
+}
+
+std::string GetPreferenceKey(bool clear_exist_key) {
+  time_t boot_time = GetBootTimeEpoch();
+  if (boot_time == -1) {
+    return "";
+  }
+
+  char* id = nullptr;
+  int ret = app_get_id(&id);
+  if (ret != APP_CONTROL_ERROR_NONE || !id) {
+    FT_LOG(Error) << "Fail to get app id.";
+    return std::string();
+  }
+
+  std::string app_id = id;
+  free(id);
+
+  std::string preference_key =
+      std::string(kSysPointingDeviceSupportToastSharedPreferenceKey) + "/" +
+      app_id + "/" + std::to_string(boot_time);
+
+  if (clear_exist_key) {
+    preference_foreach_item(PreferenceItemCallback,
+                            const_cast<char*>(app_id.c_str()));
+  }
+  return preference_key;
+}
+
+bool GetPointingDeviceToastPreference() {
+  bool show_unsupported_toast = false;
+  std::string preference_key = GetPreferenceKey(false);
+  if (preference_key.empty()) {
+    return false;
+  }
+
+  int ret =
+      preference_get_boolean(preference_key.c_str(), &show_unsupported_toast);
+  if (ret != PREFERENCE_ERROR_NONE) {
+    return false;
+  }
+  return show_unsupported_toast;
+}
+
+void SetPointingDevicePreference() {
+  std::string preference_key = GetPreferenceKey(true);
+  if (preference_key.empty()) {
+    return;
+  }
+
+  int ret = preference_set_boolean(preference_key.c_str(), true);
+  if (ret != PREFERENCE_ERROR_NONE) {
+    FT_LOG(Error) << "Fail to set toasted preference.";
+  }
+}
+
+std::string ResolveTvCursorName(const std::string& kind) {
+  int pointer_size = -1;
+  if (vconf_get_int(kSysMouseCursorPointerSizeVConfKey, &pointer_size) < 0) {
+    FT_LOG(Info) << "Failed to load cursor size.";
+  }
+
+  if (kind == "basic") {
+    if (pointer_size == 0) {
+      return "large_normal";
+    }
+    if (pointer_size == 1) {
+      return "medium_normal";
+    }
+    if (pointer_size == 2) {
+      return "small_normal";
+    }
+    return "normal_default";
+  }
+
+  if (kind == "click") {
+    if (pointer_size == 0) {
+      return "large_normal_pnh";
+    }
+    if (pointer_size == 1) {
+      return "medium_normal_pnh";
+    }
+    if (pointer_size == 2) {
+      return "small_normal_pnh";
+    }
+    return "normal_pnh";
+  }
+
+  if (kind == "text") {
+    if (pointer_size == 0) {
+      return "large_normal_input_field";
+    }
+    if (pointer_size == 1) {
+      return "medium_normal_input_field";
+    }
+    if (pointer_size == 2) {
+      return "small_normal_input_field";
+    }
+    return "normal_input_field";
+  }
+
+  if (kind == "none") {
+    return "normal_transparent";
+  }
+
+  FT_LOG(Info) << kind << " cursor is not supported.";
+  return "normal_default";
+}
+#endif
+
 }  // namespace
 
 TizenWindowEcoreWl2::TizenWindowEcoreWl2(TizenGeometry geometry,
@@ -145,6 +292,9 @@ TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
 bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
   TEMP_DIAG_ECORE_WL2(
       "CreateWindow begin [diag-r7]. window_handle=" << window_handle);
+#ifdef TV_PROFILE
+  tv_system_window_handle_ = window_handle;
+#endif
   wl2_display_ = wl_display_connect(nullptr);
 
   if (!wl2_display_) {
@@ -369,6 +519,11 @@ void TizenWindowEcoreWl2::EnableCursor() {
       dlclose(handle);
     }
   }
+
+  if (tv_cursor_configured_ && tv_system_window_handle_) {
+    UpdatePointerCursor();
+    return;
+  }
 #endif
 
   // [TEMP_DIAG_REMOVE] Cursor restore path (wl_shm-backed).
@@ -399,15 +554,85 @@ typedef enum _MouseSupport { DISABLE = 0, ENABLE } MouseSupport;
 typedef enum _Device_Type { MOUSE_DEVICE = 3, TOUCH_DEVICE } Device_Type;
 
 void TizenWindowEcoreWl2::SetPointingDeviceSupport() {
-  FT_LOG(Info) << "SetPointingDeviceSupport is not available without Ecore.";
+  if (!tv_system_window_handle_) {
+    FT_LOG(Info) << "No precreated TV window handle for pointing support.";
+    return;
+  }
+
+  void* handle = dlopen("libvd-win-util.so", RTLD_LAZY);
+  if (!handle) {
+    FT_LOG(Error) << "Could not open a shared library libvd-win-util.so.";
+    return;
+  }
+
+  int (*Mouse_Pointer_Support)(MouseSupport type, void* ecore_wl2_win) =
+      nullptr;
+  *(void**)(&Mouse_Pointer_Support) = dlsym(handle, "Mouse_Pointer_Support");
+
+  if (!Mouse_Pointer_Support) {
+    FT_LOG(Error) << "Could not load symbols from the library.";
+    dlclose(handle);
+    return;
+  }
+
+  Mouse_Pointer_Support(pointing_device_support_ ? ENABLE : DISABLE,
+                        tv_system_window_handle_);
+  dlclose(handle);
 }
 
 void TizenWindowEcoreWl2::SetFloatingMenuSupport() {
-  FT_LOG(Info) << "SetFloatingMenuSupport is not available without Ecore.";
+  if (!tv_system_window_handle_) {
+    FT_LOG(Info) << "No precreated TV window handle for floating menu.";
+    return;
+  }
+
+  void* handle = dlopen("libvd-win-util.so", RTLD_LAZY);
+  if (!handle) {
+    FT_LOG(Error) << "Could not open a shared library libvd-win-util.so.";
+    return;
+  }
+
+  int (*Mouse_Pointer_Not_Allow)(int enable, void* ecore_wl2_win) = nullptr;
+  *(void**)(&Mouse_Pointer_Not_Allow) =
+      dlsym(handle, "Mouse_Pointer_Not_Allow");
+
+  if (!Mouse_Pointer_Not_Allow) {
+    FT_LOG(Error) << "Could not load symbols from the library.";
+    dlclose(handle);
+    return;
+  }
+
+  Mouse_Pointer_Not_Allow(!floating_menu_support_, tv_system_window_handle_);
+  dlclose(handle);
 }
 
 void TizenWindowEcoreWl2::ShowUnsupportedToast() {
-  FT_LOG(Info) << "ShowUnsupportedToast is not available without Ecore.";
+  if (!tv_system_window_handle_) {
+    FT_LOG(Info) << "No precreated TV window handle for unsupported toast.";
+    return;
+  }
+
+  void* handle = dlopen("libvd-win-util.so", RTLD_LAZY);
+  if (!handle) {
+    FT_LOG(Error) << "Could not open a shared library libvd-win-util.so.";
+    return;
+  }
+
+  void (*Unsupported_Toast_Launch)(Device_Type type,
+                                   int show,
+                                   int enable,
+                                   void* ecore_wl2_win) = nullptr;
+  *(void**)(&Unsupported_Toast_Launch) =
+      dlsym(handle, "Unsupported_Toast_Launch");
+
+  if (!Unsupported_Toast_Launch) {
+    FT_LOG(Error) << "Could not load symbols from the library.";
+    dlclose(handle);
+    return;
+  }
+
+  Unsupported_Toast_Launch(MOUSE_DEVICE, 1, 1, tv_system_window_handle_);
+  dlclose(handle);
 }
 #endif
 
@@ -712,10 +937,6 @@ void TizenWindowEcoreWl2::Show() {
 }
 
 void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {
-  if (current_cursor_kind_ == kind) {
-    return;
-  }
-
   current_cursor_kind_ = kind;
   UpdatePointerCursor();
 }
@@ -1127,6 +1348,23 @@ void TizenWindowEcoreWl2::UpdatePointerCursor() {
     return;
   }
 
+#ifdef TV_PROFILE
+  if (tv_cursor_configured_ && tv_system_window_handle_) {
+    auto* window = static_cast<Ecore_Wl2_Window*>(tv_system_window_handle_);
+    Ecore_Wl2_Input* input = ecore_wl2_window_input_get(window);
+    if (!input) {
+      return;
+    }
+
+    // On TV, delegate cursor rendering to the system cursor stack instead of
+    // committing a client-side wl_shm cursor surface.
+    const std::string cursor_name = ResolveTvCursorName(current_cursor_kind_);
+    ecore_wl2_input_cursor_theme_name_set(input, kEcoreWL2InputCursorThemeName);
+    ecore_wl2_input_cursor_from_name_set(input, cursor_name.c_str());
+    return;
+  }
+#endif
+
   wl_cursor* cursor = ResolveCursorForKind(current_cursor_kind_);
   if (!cursor || !cursor_surface_) {
     wl_pointer_set_cursor(pointer_, last_input_serial_, nullptr, 0, 0);
@@ -1468,7 +1706,18 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
 #ifdef TV_PROFILE
   if ((!self->pointing_device_support_ || !self->floating_menu_support_) &&
       !self->show_unsupported_toast_) {
+    bool shown = GetPointingDeviceToastPreference();
+    if (!self->floating_menu_support_) {
+      self->SetFloatingMenuSupport();
+    }
+    if (!shown) {
+      self->ShowUnsupportedToast();
+      SetPointingDevicePreference();
+    }
     self->show_unsupported_toast_ = true;
+    if (self->floating_menu_support_ && !self->pointing_device_support_) {
+      self->SetPointingDeviceSupport();
+    }
     return;
   }
 #endif
