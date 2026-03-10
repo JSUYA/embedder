@@ -134,15 +134,14 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   void RunDisplayEventThread();
   void ScheduleDisplayDispatchOnMainThread();
   bool DispatchDisplayEvents();
-  gint64 GetHoverMotionDispatchIntervalUs() const;
-  void SchedulePointerMotion(size_t timestamp);
-  void FlushPendingPointerMotion();
-  void CancelPendingPointerMotion();
+  bool FlushDisplay();
+  void InvalidatePointerCursor();
+  bool PreparePointerCursor();
+  void ApplyPointerCursor();
   void UpdatePointerCursor();
   wl_cursor* ResolveCursorForKind(const std::string& kind) const;
 
   static gboolean DispatchDisplayEventsOnMainThread(gpointer data);
-  static gboolean DispatchPendingPointerMotion(gpointer data);
 
   static void HandleRegistryGlobal(void* data,
                                    wl_registry* registry,
@@ -325,12 +324,14 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   double pointer_x_ = 0.0;
   double pointer_y_ = 0.0;
-  bool pointer_button_pressed_ = false;
   bool pointer_inside_surface_ = false;
   uint32_t last_input_serial_ = 0;
   uint32_t pending_geometry_serial_ = 0;
-  size_t pending_pointer_motion_timestamp_ = 0;
   std::string current_cursor_kind_ = "basic";
+  std::string prepared_cursor_kind_;
+  int32_t cursor_hotspot_x_ = 0;
+  int32_t cursor_hotspot_y_ = 0;
+  bool pointer_cursor_hidden_ = false;
 
   bool running_ = false;
   bool owns_surface_ = true;
@@ -343,12 +344,8 @@ class TizenWindowEcoreWl2 : public TizenWindow {
   bool stop_display_event_thread_ = false;
   bool display_dispatch_scheduled_ = false;
   guint display_dispatch_source_id_ = 0;
-  guint pointer_motion_source_id_ = 0;
-  bool pointer_motion_pending_ = false;
-  gint64 last_pointer_motion_dispatch_time_us_ = 0;
 
   uint32_t resource_id_ = 0;
-  int32_t output_refresh_rate_millihz_ = 60000;
 
 #ifdef TV_PROFILE
   bool pointing_device_support_ = true;

@@ -50,8 +50,6 @@ constexpr uint32_t kEcoreEventModifierCaps = 0x0040;
 
 constexpr uint32_t kEcoreDeviceClassKeyboard = 2;
 constexpr uint32_t kEcoreDeviceSubclassNone = 0;
-constexpr gint64 kMinHoverMotionDispatchIntervalUs =
-    16 * G_TIME_SPAN_MILLISECOND;
 constexpr int kCursorThemeSize = 24;
 
 #ifdef TV_PROFILE
@@ -480,6 +478,7 @@ void TizenWindowEcoreWl2::EnableCursor() {
       default_cursor_ = wl_cursor_theme_get_cursor(cursor_theme_, "left_ptr");
     }
   }
+  InvalidatePointerCursor();
 
   TEMP_DIAG_ECORE_WL2("EnableCursor ready. cursor_surface="
                       << cursor_surface_ << " theme=" << cursor_theme_
@@ -512,13 +511,11 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
 
 void TizenWindowEcoreWl2::UnregisterEventHandlers() {
   StopDisplayEventThread();
-  CancelPendingPointerMotion();
 }
 
 void TizenWindowEcoreWl2::DestroyWindow() {
   running_ = false;
   pointer_inside_surface_ = false;
-  CancelPendingPointerMotion();
 
   if (pointer_) {
     wl_pointer_destroy(pointer_);
@@ -553,6 +550,7 @@ void TizenWindowEcoreWl2::DestroyWindow() {
     using_tv_cursor_theme_ = false;
 #endif
   }
+  InvalidatePointerCursor();
 
   if (output_) {
     wl_output_destroy(output_);
@@ -812,7 +810,10 @@ void TizenWindowEcoreWl2::UpdateFlutterCursor(const std::string& kind) {
   }
 
   current_cursor_kind_ = kind;
-  UpdatePointerCursor();
+  InvalidatePointerCursor();
+  if (pointer_inside_surface_) {
+    UpdatePointerCursor();
+  }
 }
 
 void TizenWindowEcoreWl2::SetTizenPolicyNotificationLevel(int level) {
@@ -1137,74 +1138,90 @@ gboolean TizenWindowEcoreWl2::DispatchDisplayEventsOnMainThread(gpointer data) {
   return G_SOURCE_REMOVE;
 }
 
-gint64 TizenWindowEcoreWl2::GetHoverMotionDispatchIntervalUs() const {
-  if (output_refresh_rate_millihz_ <= 0) {
-    return kMinHoverMotionDispatchIntervalUs;
+bool TizenWindowEcoreWl2::FlushDisplay() {
+  if (!wl2_display_) {
+    return false;
   }
 
-  const gint64 refresh_interval_us =
-      (static_cast<gint64>(G_TIME_SPAN_SECOND) * 1000) /
-      output_refresh_rate_millihz_;
-  return std::max(kMinHoverMotionDispatchIntervalUs, refresh_interval_us);
+  const int flush_result = wl_display_flush(wl2_display_);
+  if (flush_result < 0 && errno != EAGAIN) {
+    FT_LOG(Error) << "Wayland display flush failed.";
+    return false;
+  }
+
+  return true;
 }
 
-void TizenWindowEcoreWl2::SchedulePointerMotion(size_t timestamp) {
-  pending_pointer_motion_timestamp_ = timestamp;
-  pointer_motion_pending_ = true;
+void TizenWindowEcoreWl2::InvalidatePointerCursor() {
+  prepared_cursor_kind_.clear();
+  cursor_hotspot_x_ = 0;
+  cursor_hotspot_y_ = 0;
+  pointer_cursor_hidden_ = false;
+}
 
-  if (pointer_motion_source_id_ != 0) {
+bool TizenWindowEcoreWl2::PreparePointerCursor() {
+  if (!cursor_surface_) {
+    pointer_cursor_hidden_ = true;
+    prepared_cursor_kind_ = current_cursor_kind_;
+    return false;
+  }
+
+  if (prepared_cursor_kind_ == current_cursor_kind_) {
+    return !pointer_cursor_hidden_;
+  }
+
+  wl_cursor* cursor = ResolveCursorForKind(current_cursor_kind_);
+  if (!cursor) {
+    pointer_cursor_hidden_ = true;
+    prepared_cursor_kind_ = current_cursor_kind_;
+    cursor_hotspot_x_ = 0;
+    cursor_hotspot_y_ = 0;
+    return false;
+  }
+
+  wl_cursor_image* image = cursor->images[0];
+  if (!image) {
+    pointer_cursor_hidden_ = true;
+    prepared_cursor_kind_ = current_cursor_kind_;
+    cursor_hotspot_x_ = 0;
+    cursor_hotspot_y_ = 0;
+    return false;
+  }
+
+  wl_buffer* buffer = wl_cursor_image_get_buffer(image);
+  if (!buffer) {
+    pointer_cursor_hidden_ = true;
+    prepared_cursor_kind_ = current_cursor_kind_;
+    cursor_hotspot_x_ = 0;
+    cursor_hotspot_y_ = 0;
+    return false;
+  }
+
+  wl_surface_attach(cursor_surface_, buffer, 0, 0);
+  wl_surface_damage(cursor_surface_, 0, 0, image->width, image->height);
+  wl_surface_commit(cursor_surface_);
+
+  cursor_hotspot_x_ = image->hotspot_x;
+  cursor_hotspot_y_ = image->hotspot_y;
+  pointer_cursor_hidden_ = false;
+  prepared_cursor_kind_ = current_cursor_kind_;
+  return true;
+}
+
+void TizenWindowEcoreWl2::ApplyPointerCursor() {
+  if (!pointer_ || !pointer_inside_surface_ || !wl2_display_) {
     return;
   }
 
-  const gint64 now = g_get_monotonic_time();
-  gint64 delay_us = 0;
-  if (last_pointer_motion_dispatch_time_us_ != 0) {
-    const gint64 next_dispatch_time =
-        last_pointer_motion_dispatch_time_us_ +
-        GetHoverMotionDispatchIntervalUs();
-    if (next_dispatch_time > now) {
-      delay_us = next_dispatch_time - now;
-    }
-  }
-
-  if (delay_us > 0) {
-    const guint delay_ms = static_cast<guint>((delay_us + 999) / 1000);
-    pointer_motion_source_id_ = g_timeout_add_full(
-        G_PRIORITY_DEFAULT_IDLE, std::max(delay_ms, 1u),
-        DispatchPendingPointerMotion, this, nullptr);
+  if (!PreparePointerCursor()) {
+    wl_pointer_set_cursor(pointer_, last_input_serial_, nullptr, 0, 0);
+    FlushDisplay();
     return;
   }
 
-  pointer_motion_source_id_ = g_idle_add_full(
-      G_PRIORITY_DEFAULT_IDLE, DispatchPendingPointerMotion, this, nullptr);
-}
-
-void TizenWindowEcoreWl2::FlushPendingPointerMotion() {
-  if (!pointer_motion_pending_ || !view_delegate_) {
-    CancelPendingPointerMotion();
-    return;
-  }
-
-  if (pointer_motion_source_id_ != 0) {
-    g_source_remove(pointer_motion_source_id_);
-    pointer_motion_source_id_ = 0;
-  }
-
-  pointer_motion_pending_ = false;
-  last_pointer_motion_dispatch_time_us_ = g_get_monotonic_time();
-  view_delegate_->OnPointerMove(pointer_x_, pointer_y_,
-                                pending_pointer_motion_timestamp_,
-                                kFlutterPointerDeviceKindMouse, 0);
-  pending_pointer_motion_timestamp_ = 0;
-}
-
-void TizenWindowEcoreWl2::CancelPendingPointerMotion() {
-  if (pointer_motion_source_id_ != 0) {
-    g_source_remove(pointer_motion_source_id_);
-    pointer_motion_source_id_ = 0;
-  }
-  pointer_motion_pending_ = false;
-  pending_pointer_motion_timestamp_ = 0;
+  wl_pointer_set_cursor(pointer_, last_input_serial_, cursor_surface_,
+                        cursor_hotspot_x_, cursor_hotspot_y_);
+  FlushDisplay();
 }
 
 wl_cursor* TizenWindowEcoreWl2::ResolveCursorForKind(
@@ -1244,46 +1261,7 @@ wl_cursor* TizenWindowEcoreWl2::ResolveCursorForKind(
 }
 
 void TizenWindowEcoreWl2::UpdatePointerCursor() {
-  if (!pointer_ || !pointer_inside_surface_ || !wl2_display_) {
-    return;
-  }
-
-  wl_cursor* cursor = ResolveCursorForKind(current_cursor_kind_);
-  if (!cursor || !cursor_surface_) {
-    wl_pointer_set_cursor(pointer_, last_input_serial_, nullptr, 0, 0);
-    wl_display_flush(wl2_display_);
-    return;
-  }
-
-  wl_cursor_image* image = cursor->images[0];
-  if (!image) {
-    wl_pointer_set_cursor(pointer_, last_input_serial_, nullptr, 0, 0);
-    wl_display_flush(wl2_display_);
-    return;
-  }
-
-  wl_buffer* buffer = wl_cursor_image_get_buffer(image);
-  if (!buffer) {
-    return;
-  }
-
-  wl_pointer_set_cursor(pointer_, last_input_serial_, cursor_surface_,
-                        image->hotspot_x, image->hotspot_y);
-  wl_surface_attach(cursor_surface_, buffer, 0, 0);
-  wl_surface_damage(cursor_surface_, 0, 0, image->width, image->height);
-  wl_surface_commit(cursor_surface_);
-  wl_display_flush(wl2_display_);
-}
-
-gboolean TizenWindowEcoreWl2::DispatchPendingPointerMotion(gpointer data) {
-  auto* self = static_cast<TizenWindowEcoreWl2*>(data);
-  if (!self) {
-    return G_SOURCE_REMOVE;
-  }
-
-  self->pointer_motion_source_id_ = 0;
-  self->FlushPendingPointerMotion();
-  return G_SOURCE_REMOVE;
+  ApplyPointerCursor();
 }
 
 void TizenWindowEcoreWl2::HandleRegistryGlobal(void* data,
@@ -1457,7 +1435,7 @@ void TizenWindowEcoreWl2::HandleSeatCapabilities(void* data,
     }
   } else if (self->pointer_) {
     self->pointer_inside_surface_ = false;
-    self->CancelPendingPointerMotion();
+    self->InvalidatePointerCursor();
     wl_pointer_destroy(self->pointer_);
     self->pointer_ = nullptr;
   }
@@ -1520,7 +1498,6 @@ void TizenWindowEcoreWl2::HandlePointerEnter(void* data,
   self->UpdatePointerCursor();
 
   if (self->view_delegate_) {
-    self->last_pointer_motion_dispatch_time_us_ = g_get_monotonic_time();
     self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
                                         GetCurrentTimeMillis(),
                                         kFlutterPointerDeviceKindMouse, 0);
@@ -1537,7 +1514,6 @@ void TizenWindowEcoreWl2::HandlePointerLeave(void* data,
   }
   self->last_input_serial_ = serial;
   self->pointer_inside_surface_ = false;
-  self->CancelPendingPointerMotion();
 }
 
 void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
@@ -1562,17 +1538,9 @@ void TizenWindowEcoreWl2::HandlePointerMotion(void* data,
 
   self->pointer_x_ = next_x;
   self->pointer_y_ = next_y;
-  if (self->pointer_button_pressed_) {
-    self->FlushPendingPointerMotion();
-    self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
-                                        static_cast<size_t>(time),
-                                        kFlutterPointerDeviceKindMouse, 0);
-    return;
-  }
-
-  // Hover motion can arrive much faster than the engine can usefully consume
-  // it, so only forward the most recent position once the main loop goes idle.
-  self->SchedulePointerMotion(static_cast<size_t>(time));
+  self->view_delegate_->OnPointerMove(self->pointer_x_, self->pointer_y_,
+                                      static_cast<size_t>(time),
+                                      kFlutterPointerDeviceKindMouse, 0);
 }
 
 void TizenWindowEcoreWl2::HandlePointerButton(void* data,
@@ -1595,16 +1563,13 @@ void TizenWindowEcoreWl2::HandlePointerButton(void* data,
 #endif
 
   self->last_input_serial_ = serial;
-  self->FlushPendingPointerMotion();
 
   FlutterPointerMouseButtons flutter_button = ToFlutterPointerButton(button);
   if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
-    self->pointer_button_pressed_ = true;
     self->view_delegate_->OnPointerDown(
         self->pointer_x_, self->pointer_y_, flutter_button,
         static_cast<size_t>(time), kFlutterPointerDeviceKindMouse, 0);
   } else {
-    self->pointer_button_pressed_ = false;
     self->view_delegate_->OnPointerUp(self->pointer_x_, self->pointer_y_,
                                       flutter_button, static_cast<size_t>(time),
                                       kFlutterPointerDeviceKindMouse, 0);
@@ -1620,8 +1585,6 @@ void TizenWindowEcoreWl2::HandlePointerAxis(void* data,
   if (!self || !self->view_delegate_) {
     return;
   }
-
-  self->FlushPendingPointerMotion();
 
   double delta_x = 0.0;
   double delta_y = 0.0;
@@ -1924,6 +1887,7 @@ void TizenWindowEcoreWl2::HandleOutputMode(void* data,
                                            int32_t width,
                                            int32_t height,
                                            int32_t refresh) {
+  (void)refresh;
   auto* self = static_cast<TizenWindowEcoreWl2*>(data);
   if (!self) {
     return;
@@ -1932,9 +1896,6 @@ void TizenWindowEcoreWl2::HandleOutputMode(void* data,
   if (flags & WL_OUTPUT_MODE_CURRENT) {
     self->screen_geometry_.width = width;
     self->screen_geometry_.height = height;
-    if (refresh > 0) {
-      self->output_refresh_rate_millihz_ = refresh;
-    }
     self->UpdateOutputDpi();
   }
 }
