@@ -6,7 +6,7 @@
 #ifndef EMBEDDER_TIZEN_EVENT_LOOP_H_
 #define EMBEDDER_TIZEN_EVENT_LOOP_H_
 
-#include <Ecore.h>
+#include <glib.h>
 
 #include <atomic>
 #include <chrono>
@@ -73,10 +73,7 @@ class TizenEventLoop {
   std::atomic<std::uint64_t> task_order_ = 0;
 
  private:
-  Ecore_Pipe* ecore_pipe_ = nullptr;
-
-  // Returns a TaskTimePoint computed from the given target time from Flutter.
-  TaskTimePoint TimePointFromFlutterTime(uint64_t flutter_target_time_nanos);
+  static gboolean ExecuteExpiredTasksOnMainThread(gpointer data);
 };
 
 class TizenPlatformEventLoop : public TizenEventLoop {

@@ -53,11 +53,10 @@ class PlatformChannel {
 
   // A reference to the native view managed by FlutterTizenView.
   TizenViewBase* view_ = nullptr;
-#ifdef CLIPBOARD_SUPPORT
-  std::unique_ptr<TizenClipboard> tizen_clipboard_;
-#else
   // A container that holds clipboard data during the engine lifetime.
   std::string clipboard_;
+#ifdef CLIPBOARD_SUPPORT
+  std::unique_ptr<TizenClipboard> tizen_clipboard_;
 #endif
 };
 

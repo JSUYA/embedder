@@ -5,12 +5,12 @@
 #ifndef EMBEDDER_TIZEN_CLIPBOARD_H_
 #define EMBEDDER_TIZEN_CLIPBOARD_H_
 
-#define EFL_BETA_API_SUPPORT
-#include <Ecore_Wl2.h>
+#include <tizen_core_wayland.h>
 
 #include <functional>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "flutter/shell/platform/tizen/tizen_view_base.h"
 
@@ -24,21 +24,22 @@ class TizenClipboard {
   TizenClipboard(TizenViewBase* view);
   virtual ~TizenClipboard();
 
+  bool IsAvailable() const { return input_ != nullptr && display_ != nullptr; }
   void SetData(const std::string& data);
   bool GetData(ClipboardCallback on_data_callback);
   bool HasStrings();
 
  private:
-  void SendData(void* event);
-  void ReceiveData(void* event);
+  void SendData(const tizen_core_wayland::DataSourceSendEvent* event);
+  void ReceiveData(const tizen_core_wayland::OfferDataReadyEvent* event);
 
   std::string data_;
   ClipboardCallback on_data_callback_;
   uint32_t selection_serial_ = 0;
-  Ecore_Wl2_Offer* selection_offer_ = nullptr;
-  Ecore_Wl2_Display* display_ = nullptr;
-  Ecore_Event_Handler* send_handler = nullptr;
-  Ecore_Event_Handler* receive_handler = nullptr;
+  tizen_core_wayland::Offer* selection_offer_ = nullptr;
+  tizen_core_wayland::Display* display_ = nullptr;
+  tizen_core_wayland::Input* input_ = nullptr;
+  std::vector<tizen_core_wayland::EventHandler> event_handlers_;
 };
 
 }  // namespace flutter

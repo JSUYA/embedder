@@ -5,13 +5,14 @@
 #ifndef EMBEDDER_TIZEN_WINDOW_ECORE_WL2_H_
 #define EMBEDDER_TIZEN_WINDOW_ECORE_WL2_H_
 
-#define EFL_BETA_API_SUPPORT
-#include <Ecore_Wl2.h>
 #include <tizen-extension-client-protocol.h>
+#include <wayland-egl-tizen.h>
 
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include <tizen_core_wayland.h>
 
 #include "flutter/shell/platform/tizen/tizen_window.h"
 
@@ -40,7 +41,7 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   void* GetRenderTargetDisplay() override { return wl2_display_; }
 
-  void* GetNativeHandle() override { return ecore_wl2_window_; }
+  void* GetNativeHandle() override { return window_; }
 
   int32_t GetRotation() override;
 
@@ -89,14 +90,17 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   void PrepareInputMethod();
 
-  Ecore_Wl2_Display* ecore_wl2_display_ = nullptr;
-  Ecore_Wl2_Window* ecore_wl2_window_ = nullptr;
-  Ecore_Wl2_Egl_Window* ecore_wl2_egl_window_ = nullptr;
+  tizen_core_wayland::Display* display_ = nullptr;
+  tizen_core_wayland::Window* window_ = nullptr;
+  tizen_core_wayland::Input* input_ = nullptr;
+  tizen_native_window_h egl_window_ = nullptr;
   wl_display* wl2_display_ = nullptr;
   wl_surface* wl2_surface_ = nullptr;
-  std::vector<Ecore_Event_Handler*> ecore_event_handlers_;
-  tizen_policy* tizen_policy_ = nullptr;
+  std::vector<tizen_core_wayland::EventHandler> event_handlers_;
+  std::string display_name_;
   uint32_t resource_id_ = 0;
+  bool owns_display_ = false;
+  bool owns_window_ = false;
 
 #ifdef TV_PROFILE
   bool pointing_device_support_ = true;

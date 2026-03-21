@@ -4,8 +4,6 @@
 
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
 
-#define EFL_BETA_API_SUPPORT
-#include <Ecore_Wl2.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #ifdef NUI_SUPPORT
@@ -94,11 +92,9 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
     const EGLint attribs[] = {EGL_NONE};
 
     if (render_target_display) {
-      const auto egl_window = ecore_wl2_egl_window_native_get(
-          static_cast<Ecore_Wl2_Egl_Window*>(render_target));
       egl_surface_ = eglCreateWindowSurface(
           egl_display_, egl_config_,
-          reinterpret_cast<EGLNativeWindowType>(egl_window), attribs);
+          reinterpret_cast<EGLNativeWindowType>(render_target), attribs);
     } else {
 #ifdef NUI_SUPPORT
       Dali::NativeImageSourceQueuePtr dali_native_image_queue =

@@ -4,6 +4,10 @@
 
 #include "tizen_clipboard.h"
 
+#include <unistd.h>
+
+#include <algorithm>
+
 #include "flutter/shell/platform/tizen/logger.h"
 #include "flutter/shell/platform/tizen/tizen_window.h"
 #include "flutter/shell/platform/tizen/tizen_window_ecore_wl2.h"
@@ -18,75 +22,94 @@ constexpr char kMimeTypeTextPlain[] = "text/plain;charset=utf-8";
 
 TizenClipboard::TizenClipboard(TizenViewBase* view) {
   if (auto* window = dynamic_cast<TizenWindowEcoreWl2*>(view)) {
-    auto* ecore_wl2_window =
-        static_cast<Ecore_Wl2_Window*>(window->GetNativeHandle());
-    display_ = ecore_wl2_window_display_get(ecore_wl2_window);
-  } else {
-    display_ = ecore_wl2_connected_display_get(NULL);
+    auto* native_window =
+        static_cast<tizen_core_wayland::Window*>(window->GetNativeHandle());
+    if (native_window) {
+      display_ = native_window->GetDisplay();
+    }
   }
 
-  send_handler = ecore_event_handler_add(
-      ECORE_WL2_EVENT_DATA_SOURCE_SEND,
-      [](void* data, int type, void* event) -> Eina_Bool {
-        auto* self = reinterpret_cast<TizenClipboard*>(data);
-        self->SendData(event);
-        return ECORE_CALLBACK_PASS_ON;
-      },
-      this);
-  receive_handler = ecore_event_handler_add(
-      ECORE_WL2_EVENT_OFFER_DATA_READY,
-      [](void* data, int type, void* event) -> Eina_Bool {
-        auto* self = reinterpret_cast<TizenClipboard*>(data);
-        self->ReceiveData(event);
-        return ECORE_CALLBACK_PASS_ON;
-      },
-      this);
+  if (!display_) {
+    display_ = tizen_core_wayland::DisplayManager::GetInst().Find("");
+  }
+
+  if (!display_) {
+    FT_LOG(Info) << "Clipboard backend is not available.";
+    return;
+  }
+
+  input_ = display_->FindDefaultInput();
+  if (!input_) {
+    FT_LOG(Info) << "Default input is not available for clipboard.";
+    return;
+  }
+
+  auto& broker = display_->GetEventBroker();
+  event_handlers_.push_back(broker.AddListener(
+      tizen_core_wayland::EventType::DataSourceSend,
+      [this](const tizen_core_wayland::EventBase* event) {
+        SendData(
+            static_cast<const tizen_core_wayland::DataSourceSendEvent*>(event));
+      }));
+  event_handlers_.push_back(broker.AddListener(
+      tizen_core_wayland::EventType::OfferDataReady,
+      [this](const tizen_core_wayland::EventBase* event) {
+        ReceiveData(
+            static_cast<const tizen_core_wayland::OfferDataReadyEvent*>(event));
+      }));
 }
 
 TizenClipboard::~TizenClipboard() {
   on_data_callback_ = nullptr;
+  if (!display_) {
+    return;
+  }
 
-  ecore_event_handler_del(send_handler);
-  ecore_event_handler_del(receive_handler);
+  auto& broker = display_->GetEventBroker();
+  for (auto handler : event_handlers_) {
+    broker.RemoveListener(handler);
+  }
+  event_handlers_.clear();
 }
 
-void TizenClipboard::SendData(void* event) {
+void TizenClipboard::SendData(
+    const tizen_core_wayland::DataSourceSendEvent* event) {
   if (!event) {
     return;
   }
-  auto* send_event = reinterpret_cast<Ecore_Wl2_Event_Data_Source_Send*>(event);
 
-  // TODO(jsuya): If the type of Ecore_Wl2_Event_Data_Source_Send is empty, it
-  // is assumed to be "text/plain".
-  if (!send_event->type || (strlen(send_event->type) != 0 &&
-                            strcmp(send_event->type, kMimeTypeTextPlain))) {
-    FT_LOG(Error) << "Invaild mime type("
-                  << (send_event->type ? send_event->type : "null") << ").";
-    if (send_event->fd >= 0) {
-      close(send_event->fd);
+  const std::string& mime_type = event->GetSourceType();
+  if (!mime_type.empty() && mime_type != kMimeTypeTextPlain) {
+    FT_LOG(Error) << "Invalid mime type("
+                  << (mime_type.empty() ? "null" : mime_type.c_str()) << ").";
+    if (event->GetFd() >= 0) {
+      close(event->GetFd());
     }
     return;
   }
 
-  if (send_event->serial != selection_serial_) {
+  if (event->GetSerial() != selection_serial_) {
     FT_LOG(Error) << "The serial doesn't match.";
-    if (send_event->fd >= 0) {
-      close(send_event->fd);
+    if (event->GetFd() >= 0) {
+      close(event->GetFd());
     }
     return;
   }
 
-  write(send_event->fd, data_.c_str(), data_.length());
-  close(send_event->fd);
+  if (event->GetFd() >= 0) {
+    write(event->GetFd(), data_.c_str(), data_.length());
+    close(event->GetFd());
+  }
 }
 
-void TizenClipboard::ReceiveData(void* event) {
+void TizenClipboard::ReceiveData(
+    const tizen_core_wayland::OfferDataReadyEvent* event) {
   if (!event) {
     return;
   }
-  auto* ready_event =
-      reinterpret_cast<Ecore_Wl2_Event_Offer_Data_Ready*>(event);
-  if (ready_event->data == nullptr || ready_event->len < 1) {
+
+  const auto& data = event->GetData();
+  if (data.empty()) {
     FT_LOG(Info) << "No data available.";
     if (on_data_callback_) {
       on_data_callback_("");
@@ -95,7 +118,7 @@ void TizenClipboard::ReceiveData(void* event) {
     return;
   }
 
-  if (ready_event->offer != selection_offer_) {
+  if (event->GetOffer() != selection_offer_) {
     FT_LOG(Error) << "The offer doesn't match.";
     if (on_data_callback_) {
       on_data_callback_(std::nullopt);
@@ -104,15 +127,7 @@ void TizenClipboard::ReceiveData(void* event) {
     return;
   }
 
-  size_t data_length = strlen(ready_event->data);
-  size_t buffer_size = ready_event->len;
-  std::string content;
-
-  if (data_length < buffer_size) {
-    content.append(ready_event->data, data_length);
-  } else {
-    content.append(ready_event->data, buffer_size);
-  }
+  std::string content(reinterpret_cast<const char*>(data.data()), data.size());
 
   if (on_data_callback_) {
     on_data_callback_(content);
@@ -121,31 +136,27 @@ void TizenClipboard::ReceiveData(void* event) {
 }
 
 void TizenClipboard::SetData(const std::string& data) {
+  if (!input_ || !display_) {
+    return;
+  }
+
   data_ = data;
 
-  const char* mime_types[3];
-  mime_types[0] = kMimeTypeTextPlain;
-  // TODO(jsuya): There is an issue where ECORE_WL2_EVENT_DATA_SOURCE_SEND event
-  // does not work properly even if ecore_wl2_dnd_selection_set() is called in
-  // Tizen 6.5 or lower. Therefore, add empty mimetype for event call from the
-  // cbhm module. Since it works normally from Tizen 8.0, this part may be
-  // modified in the future.
-  mime_types[1] = "";
-  mime_types[2] = nullptr;
-
-  Ecore_Wl2_Input* input = ecore_wl2_input_default_input_get(display_);
-  selection_serial_ = ecore_wl2_dnd_selection_set(input, mime_types);
-  ecore_wl2_display_flush(display_);
+  selection_serial_ =
+      input_->SetDndSelectionType({kMimeTypeTextPlain, std::string()});
+  display_->Flush();
 }
 
 bool TizenClipboard::GetData(ClipboardCallback on_data_callback) {
-  on_data_callback_ = std::move(on_data_callback);
+  if (!input_) {
+    return false;
+  }
 
-  Ecore_Wl2_Input* input = ecore_wl2_input_default_input_get(display_);
-  selection_offer_ = ecore_wl2_dnd_selection_get(input);
+  on_data_callback_ = std::move(on_data_callback);
+  selection_offer_ = input_->GetDndSelectionOffer();
 
   if (!selection_offer_) {
-    FT_LOG(Error) << "ecore_wl2_dnd_selection_get() failed.";
+    FT_LOG(Error) << "GetDndSelectionOffer() failed.";
 
     if (on_data_callback_) {
       on_data_callback_ = nullptr;
@@ -153,30 +164,24 @@ bool TizenClipboard::GetData(ClipboardCallback on_data_callback) {
     return false;
   }
 
-  ecore_wl2_offer_receive(selection_offer_,
-                          const_cast<char*>(kMimeTypeTextPlain));
+  selection_offer_->Receive(kMimeTypeTextPlain);
   return true;
 }
 
 bool TizenClipboard::HasStrings() {
-  Ecore_Wl2_Input* input = ecore_wl2_input_default_input_get(display_);
-  selection_offer_ = ecore_wl2_dnd_selection_get(input);
+  if (!input_) {
+    return false;
+  }
+
+  selection_offer_ = input_->GetDndSelectionOffer();
 
   if (!selection_offer_) {
     return false;
   }
 
-  Eina_Array* available_types = ecore_wl2_offer_mimes_get(selection_offer_);
-  unsigned int type_count = eina_array_count(available_types);
-
-  for (unsigned int i = 0; i < type_count; ++i) {
-    auto* available_type =
-        static_cast<char*>(eina_array_data_get(available_types, i));
-    if (!strcmp(kMimeTypeTextPlain, available_type)) {
-      return true;
-    }
-  }
-  return false;
+  const auto& mime_types = selection_offer_->GetMimeTypes();
+  return std::find(mime_types.begin(), mime_types.end(), kMimeTypeTextPlain) !=
+         mime_types.end();
 }
 
 }  // namespace flutter

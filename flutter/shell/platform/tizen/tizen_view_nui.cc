@@ -108,7 +108,7 @@ void TizenViewNui::UpdateFlutterCursor(const std::string& kind) {
 
 void TizenViewNui::PrepareInputMethod() {
   input_method_context_ =
-      std::make_unique<TizenInputMethodContext>(GetWindowId());
+      std::make_unique<TizenInputMethodContext>(GetNativeHandle());
 
   // Set input method callbacks.
   input_method_context_->SetOnPreeditStart(

@@ -5,12 +5,10 @@
 #ifndef EMBEDDER_TIZEN_INPUT_METHOD_CONTEXT_H_
 #define EMBEDDER_TIZEN_INPUT_METHOD_CONTEXT_H_
 
-#include <Ecore_IMF.h>
-#include <Ecore_Input.h>
+#include <tizen_core_imf.h>
 
 #include <functional>
 #include <string>
-#include <unordered_map>
 
 namespace flutter {
 
@@ -26,10 +24,20 @@ struct InputPanelGeometry {
 
 class TizenInputMethodContext {
  public:
-  TizenInputMethodContext(uintptr_t window_id);
+  explicit TizenInputMethodContext(void* client_window);
   ~TizenInputMethodContext();
 
-  bool HandleEcoreEventKey(Ecore_Event_Key* event, bool is_down);
+  bool HandleKeyEvent(const char* device_name,
+                      uint32_t device_class,
+                      uint32_t device_subclass,
+                      const char* key,
+                      const char* key_name,
+                      const char* string,
+                      const char* compose,
+                      uint32_t modifiers,
+                      uint32_t scan_code,
+                      size_t timestamp,
+                      bool is_down);
 
 #ifdef NUI_SUPPORT
   bool HandleNuiKeyEvent(const char* device_name,
@@ -79,27 +87,45 @@ class TizenInputMethodContext {
   void UnregisterInputPanelEventCallback();
 
  private:
-  static void InputPanelStateChangedCallback(void* data,
-                                             Ecore_IMF_Context* ctx,
-                                             int value);
+  static void CommitCallback(tizen_core_imf_context_h ctx,
+                             void* event_info,
+                             void* user_data);
+  static void PreeditStartCallback(tizen_core_imf_context_h ctx,
+                                   void* event_info,
+                                   void* user_data);
+  static void PreeditEndCallback(tizen_core_imf_context_h ctx,
+                                 void* event_info,
+                                 void* user_data);
+  static void PreeditChangedCallback(tizen_core_imf_context_h ctx,
+                                     void* event_info,
+                                     void* user_data);
+  static void InputPanelStateChangedCallback(tizen_core_imf_context_h ctx,
+                                             int value,
+                                             void* user_data);
 
   void RegisterEventCallbacks();
   void UnregisterEventCallbacks();
 
   void SetContextOptions();
   void SetInputPanelOptions();
+  bool HandleKeyEventInternal(const char* device_name,
+                              uint32_t device_class,
+                              uint32_t device_subclass,
+                              const char* key,
+                              const char* key_name,
+                              const char* string,
+                              const char* compose,
+                              uint32_t modifiers,
+                              uint32_t scan_code,
+                              size_t timestamp,
+                              bool is_down);
 
-#ifdef NUI_SUPPORT
-  Ecore_Device* ecore_device_ = nullptr;
-#endif
-  Ecore_IMF_Context* imf_context_ = nullptr;
+  tizen_core_imf_context_h imf_context_ = nullptr;
   OnCommit on_commit_;
   OnPreeditChanged on_preedit_changed_;
   OnPreeditStart on_preedit_start_;
   OnPreeditEnd on_preedit_end_;
   OnInputPanelStateChanged on_input_panel_state_changed_;
-  std::unordered_map<Ecore_IMF_Callback_Type, Ecore_IMF_Event_Cb>
-      event_callbacks_;
 };
 
 }  // namespace flutter

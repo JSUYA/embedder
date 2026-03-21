@@ -5,6 +5,7 @@
 
 #include "tizen_event_loop.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace flutter {
@@ -14,23 +15,18 @@ TizenEventLoop::TizenEventLoop(std::thread::id main_thread_id,
                                TaskExpiredCallback on_task_expired)
     : main_thread_id_(main_thread_id),
       get_current_time_(get_current_time),
-      on_task_expired_(std::move(on_task_expired)) {
-  ecore_pipe_ = ecore_pipe_add(
-      [](void* data, void* buffer, unsigned int nbyte) -> void {
-        auto* self = static_cast<TizenEventLoop*>(data);
-        self->ExecuteTaskEvents();
-      },
-      this);
-}
+      on_task_expired_(std::move(on_task_expired)) {}
 
-TizenEventLoop::~TizenEventLoop() {
-  if (ecore_pipe_) {
-    ecore_pipe_del(ecore_pipe_);
-  }
-}
+TizenEventLoop::~TizenEventLoop() = default;
 
 bool TizenEventLoop::RunsTasksOnCurrentThread() const {
   return std::this_thread::get_id() == main_thread_id_;
+}
+
+gboolean TizenEventLoop::ExecuteExpiredTasksOnMainThread(gpointer data) {
+  auto* self = static_cast<TizenEventLoop*>(data);
+  self->ExecuteTaskEvents();
+  return G_SOURCE_REMOVE;
 }
 
 void TizenEventLoop::ExecuteTaskEvents() {
@@ -40,7 +36,6 @@ void TizenEventLoop::ExecuteTaskEvents() {
     std::lock_guard<std::mutex> lock2(expired_tasks_mutex_);
     while (!task_queue_.empty()) {
       const Task& top = task_queue_.top();
-
       if (top.fire_time > now) {
         break;
       }
@@ -52,43 +47,36 @@ void TizenEventLoop::ExecuteTaskEvents() {
   OnTaskExpired();
 }
 
-TizenEventLoop::TaskTimePoint TizenEventLoop::TimePointFromFlutterTime(
-    uint64_t flutter_target_time_nanos) {
-  const TaskTimePoint now = TaskTimePoint::clock::now();
-  const uint64_t flutter_duration =
-      flutter_target_time_nanos - get_current_time_();
-  return now + std::chrono::nanoseconds(flutter_duration);
-}
-
 void TizenEventLoop::PostTask(FlutterTask flutter_task,
                               uint64_t flutter_target_time_nanos) {
+  const uint64_t current_time = get_current_time_();
+  const int64_t remaining_nanos =
+      static_cast<int64_t>(flutter_target_time_nanos) -
+      static_cast<int64_t>(current_time);
+
   Task task;
   task.order = ++task_order_;
-  task.fire_time = TimePointFromFlutterTime(flutter_target_time_nanos);
+  task.fire_time =
+      TaskTimePoint::clock::now() +
+      std::chrono::nanoseconds(remaining_nanos > 0 ? remaining_nanos : 0);
   task.task = flutter_task;
   {
     std::lock_guard<std::mutex> lock(task_queue_mutex_);
     task_queue_.push(task);
   }
 
-  const double flutter_duration =
-      static_cast<double>(flutter_target_time_nanos) - get_current_time_();
-  if (flutter_duration > 0) {
-    ecore_timer_add(
-        flutter_duration / 1000000000.0,
-        [](void* data) -> Eina_Bool {
-          auto* self = static_cast<TizenEventLoop*>(data);
-          if (self->ecore_pipe_) {
-            ecore_pipe_write(self->ecore_pipe_, nullptr, 0);
-          }
-          return ECORE_CALLBACK_CANCEL;
-        },
-        this);
+  GSource* source = nullptr;
+  if (remaining_nanos > 0) {
+    guint delay_ms =
+        static_cast<guint>(std::max<int64_t>(1, remaining_nanos / 1000000));
+    source = g_timeout_source_new(delay_ms);
   } else {
-    if (ecore_pipe_) {
-      ecore_pipe_write(ecore_pipe_, nullptr, 0);
-    }
+    source = g_idle_source_new();
   }
+
+  g_source_set_callback(source, ExecuteExpiredTasksOnMainThread, this, nullptr);
+  g_source_attach(source, g_main_context_default());
+  g_source_unref(source);
 }
 
 TizenPlatformEventLoop::TizenPlatformEventLoop(
@@ -97,7 +85,7 @@ TizenPlatformEventLoop::TizenPlatformEventLoop(
     TaskExpiredCallback on_task_expired)
     : TizenEventLoop(main_thread_id, get_current_time, on_task_expired) {}
 
-TizenPlatformEventLoop::~TizenPlatformEventLoop() {}
+TizenPlatformEventLoop::~TizenPlatformEventLoop() = default;
 
 void TizenPlatformEventLoop::OnTaskExpired() {
   for (const Task& task : expired_tasks_) {

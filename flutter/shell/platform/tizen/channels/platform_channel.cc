@@ -265,7 +265,11 @@ void PlatformChannel::HapticFeedbackVibrate(const std::string& feedback_type) {
 
 bool PlatformChannel::GetClipboardData(ClipboardCallback on_data) {
 #ifdef CLIPBOARD_SUPPORT
-  return tizen_clipboard_->GetData(std::move(on_data));
+  if (tizen_clipboard_ && tizen_clipboard_->IsAvailable()) {
+    return tizen_clipboard_->GetData(std::move(on_data));
+  }
+  on_data(clipboard_);
+  return true;
 #else
   on_data(clipboard_);
   return true;
@@ -274,7 +278,11 @@ bool PlatformChannel::GetClipboardData(ClipboardCallback on_data) {
 
 void PlatformChannel::SetClipboardData(const std::string& data) {
 #ifdef CLIPBOARD_SUPPORT
-  tizen_clipboard_->SetData(data);
+  if (tizen_clipboard_ && tizen_clipboard_->IsAvailable()) {
+    tizen_clipboard_->SetData(data);
+    return;
+  }
+  clipboard_ = data;
 #else
   clipboard_ = data;
 #endif
@@ -282,7 +290,10 @@ void PlatformChannel::SetClipboardData(const std::string& data) {
 
 bool PlatformChannel::ClipboardHasStrings() {
 #ifdef CLIPBOARD_SUPPORT
-  return tizen_clipboard_->HasStrings();
+  if (tizen_clipboard_ && tizen_clipboard_->IsAvailable()) {
+    return tizen_clipboard_->HasStrings();
+  }
+  return !clipboard_.empty();
 #else
   return !clipboard_.empty();
 #endif
