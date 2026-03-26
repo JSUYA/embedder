@@ -5064,13 +5064,17 @@ bool AXPlatformNodeAuraLinux::SetHighlighted(AtkObject* obj) {
     return false;
   }
 
+  if (!GetData().HasState(ax::mojom::State::kFocusable) || GetData().IsIgnored())
+    return false;
+
   InvalidateHighlighted();
 
   auto focused_obj = AXPlatformNodeAuraLinux::FromAtkObject(obj);
 
   if (focused_obj) {
     focused_obj->ScrollToNode(AXPlatformNodeBase::ScrollType::Anywhere);
-    focused_obj->GrabFocus();
+    if (!focused_obj->GrabFocus())
+      return false;
     g_current_focused = obj;
 
     atk_object_notify_state_change(g_current_focused, ATK_STATE_HIGHLIGHTED,
