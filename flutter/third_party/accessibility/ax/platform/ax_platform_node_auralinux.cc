@@ -4358,9 +4358,6 @@ AXPlatformNodeAuraLinux::HitTestSync(gint x, gint y, AtkCoordType coord_type) {
 }
 
 bool AXPlatformNodeAuraLinux::GrabFocus() {
-  if (!GetData().HasState(ax::mojom::State::kFocusable))
-    return false;
-
   AXActionData action_data;
   action_data.action = ax::mojom::Action::kFocus;
   return delegate_->AccessibilityPerformAction(action_data);
@@ -5064,17 +5061,13 @@ bool AXPlatformNodeAuraLinux::SetHighlighted(AtkObject* obj) {
     return false;
   }
 
-  if (!GetData().HasState(ax::mojom::State::kFocusable) || GetData().IsIgnored())
-    return false;
-
   InvalidateHighlighted();
 
   auto focused_obj = AXPlatformNodeAuraLinux::FromAtkObject(obj);
 
   if (focused_obj) {
     focused_obj->ScrollToNode(AXPlatformNodeBase::ScrollType::Anywhere);
-    if (!focused_obj->GrabFocus())
-      return false;
+    focused_obj->GrabFocus();
     g_current_focused = obj;
 
     atk_object_notify_state_change(g_current_focused, ATK_STATE_HIGHLIGHTED,

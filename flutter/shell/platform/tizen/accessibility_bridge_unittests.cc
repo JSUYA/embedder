@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <algorithm>
+
 #include "flutter/shell/platform/common/test_accessibility_bridge.h"
 
 #include "flutter/third_party/accessibility/ax/ax_action_data.h"
@@ -18,10 +20,11 @@ FlutterTransformation IdentityTransform() {
   };
 }
 
-FlutterSemanticsFlags MakeFlags(bool blocked) {
+FlutterSemanticsFlags MakeFlags(bool blocked, bool focused = false) {
   FlutterSemanticsFlags flags = {};
   flags.struct_size = sizeof(FlutterSemanticsFlags);
   flags.is_accessibility_focus_blocked = blocked;
+  flags.is_focused = focused ? kFlutterTristateTrue : kFlutterTristateFalse;
   return flags;
 }
 
@@ -109,6 +112,32 @@ TEST(AccessibilityBridgeTest, BlockedNodeRejectsAccessibilityFocusAction) {
   EXPECT_FALSE(delegate->AccessibilityPerformAction(action_data));
   EXPECT_TRUE(bridge.performed_actions.empty());
   EXPECT_EQ(bridge.GetLastFocusedId(), ui::AXNode::kInvalidAXID);
+}
+
+TEST(AccessibilityBridgeTest, BlockedFocusedNodeDoesNotBecomeTreeFocus) {
+  TestAccessibilityBridge bridge;
+  auto flags = MakeFlags(true, true);
+  auto node = MakeNode(1, &flags);
+
+  bridge.AddFlutterSemanticsNodeUpdate(node);
+  bridge.CommitUpdates();
+
+  EXPECT_EQ(bridge.GetAXTreeData().focus_id, ui::AXNode::kInvalidAXID);
+  EXPECT_EQ(std::find(bridge.accessibility_events.begin(),
+                      bridge.accessibility_events.end(),
+                      ui::AXEventGenerator::Event::FOCUS_CHANGED),
+            bridge.accessibility_events.end());
+}
+
+TEST(AccessibilityBridgeTest, UnblockedFocusedNodeBecomesTreeFocus) {
+  TestAccessibilityBridge bridge;
+  auto flags = MakeFlags(false, true);
+  auto node = MakeNode(1, &flags);
+
+  bridge.AddFlutterSemanticsNodeUpdate(node);
+  bridge.CommitUpdates();
+
+  EXPECT_EQ(bridge.GetAXTreeData().focus_id, node.id);
 }
 
 TEST(AccessibilityBridgeTest, UnblockedNodeAcceptsAccessibilityFocusAction) {
