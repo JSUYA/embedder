@@ -62,6 +62,36 @@ TEST(AccessibilityBridgeTest, BlockedNodeDoesNotBecomeFocusable) {
   EXPECT_FALSE(ax_node->data().HasState(ax::mojom::State::kFocusable));
 }
 
+TEST(AccessibilityBridgeTest, BlockedNodeIsSkippedInUnignoredTree) {
+  TestAccessibilityBridge bridge;
+  auto root_flags = MakeFlags(false);
+  auto blocked_flags = MakeFlags(true);
+  auto visible_flags = MakeFlags(false);
+  const int32_t child_ids[] = {2, 3};
+
+  auto root = MakeNode(1, &root_flags);
+  root.child_count = 2;
+  root.children_in_traversal_order = child_ids;
+  root.children_in_hit_test_order = child_ids;
+
+  auto blocked_child = MakeNode(2, &blocked_flags);
+  auto visible_child = MakeNode(3, &visible_flags);
+
+  bridge.AddFlutterSemanticsNodeUpdate(root);
+  bridge.AddFlutterSemanticsNodeUpdate(blocked_child);
+  bridge.AddFlutterSemanticsNodeUpdate(visible_child);
+  bridge.CommitUpdates();
+
+  auto* root_node = bridge.GetNodeFromTree(root.id);
+  ASSERT_NE(root_node, nullptr);
+  EXPECT_EQ(root_node->GetUnignoredChildCount(), 1u);
+  EXPECT_EQ(root_node->GetUnignoredChildAtIndex(0)->id(), visible_child.id);
+
+  auto* blocked_node = bridge.GetNodeFromTree(blocked_child.id);
+  ASSERT_NE(blocked_node, nullptr);
+  EXPECT_TRUE(blocked_node->data().IsIgnored());
+}
+
 TEST(AccessibilityBridgeTest, BlockedNodeRejectsAccessibilityFocusAction) {
   TestAccessibilityBridge bridge;
   auto flags = MakeFlags(true);

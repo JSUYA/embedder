@@ -377,7 +377,11 @@ void AccessibilityBridge::SetStateFromFlutterUpdate(ui::AXNodeData& node_data,
       (actions & kHasScrollingAction) == 0 && node.value.empty() &&
       node.label.empty() && node.hint.empty()) {
     node_data.AddState(ax::mojom::State::kIgnored);
-  } else if (!flags->is_accessibility_focus_blocked) {
+  } else if (flags->is_accessibility_focus_blocked) {
+    // Blocked nodes should be skipped by accessibility traversal while keeping
+    // any descendants reachable through the unignored tree.
+    node_data.AddState(ax::mojom::State::kIgnored);
+  } else {
     // kFlutterSemanticsFlagIsFocusable means a keyboard focusable, it is
     // different from semantics focusable.
     // TODO(chunhtai): figure out whether something is not semantics focusable.
