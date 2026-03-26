@@ -62,12 +62,13 @@ const ui::AXNodeData& FlutterPlatformNodeDelegate::GetData() const {
 }
 
 gfx::NativeViewAccessible FlutterPlatformNodeDelegate::GetParent() {
-  if (!ax_node_->parent()) {
+  auto* unignored_parent = ax_node_->GetUnignoredParent();
+  if (!unignored_parent) {
     return nullptr;
   }
   auto bridge_ptr = bridge_.lock();
   BASE_DCHECK(bridge_ptr);
-  return bridge_ptr->GetNativeAccessibleFromId(ax_node_->parent()->id());
+  return bridge_ptr->GetNativeAccessibleFromId(unignored_parent->id());
 }
 
 gfx::NativeViewAccessible FlutterPlatformNodeDelegate::GetFocus() {

@@ -39,6 +39,10 @@ class FlutterPlatformNodeDelegateTizen : public FlutterPlatformNodeDelegate {
   // |FlutterPlatformNodeDelegate|
   void Init(std::weak_ptr<OwnerBridge> bridge, ui::AXNode* node) override;
 
+  // |FlutterPlatformNodeDelegate|
+  void NodeDataChanged(const ui::AXNodeData& old_node_data,
+                       const ui::AXNodeData& new_node_data) override;
+
  private:
   ui::AXPlatformNode* platform_node_;
 };

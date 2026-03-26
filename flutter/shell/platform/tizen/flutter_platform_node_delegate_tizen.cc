@@ -24,9 +24,29 @@ FlutterPlatformNodeDelegateTizen::~FlutterPlatformNodeDelegateTizen() {
 void FlutterPlatformNodeDelegateTizen::Init(std::weak_ptr<OwnerBridge> bridge,
                                             ui::AXNode* node) {
   FlutterPlatformNodeDelegate::Init(bridge, node);
-  platform_node_ = ui::AXPlatformNode::Create(this);
-  FT_LOG(Debug) << "Create platform node for AXNode "
-                << node->data().ToString();
+  if (!node->data().IsIgnored()) {
+    platform_node_ = ui::AXPlatformNode::Create(this);
+    FT_LOG(Debug) << "Create platform node for AXNode "
+                  << node->data().ToString();
+  }
+}
+
+void FlutterPlatformNodeDelegateTizen::NodeDataChanged(
+    const ui::AXNodeData& old_node_data,
+    const ui::AXNodeData& new_node_data) {
+  const bool was_ignored = old_node_data.IsIgnored();
+  const bool is_ignored = new_node_data.IsIgnored();
+
+  if (was_ignored && !is_ignored) {
+    if (!platform_node_) {
+      platform_node_ = ui::AXPlatformNode::Create(this);
+    }
+  } else if (!was_ignored && is_ignored) {
+    if (platform_node_) {
+      platform_node_->Destroy();
+      platform_node_ = nullptr;
+    }
+  }
 }
 
 void FlutterPlatformNodeDelegateTizen::NotifyAccessibilityEvent(

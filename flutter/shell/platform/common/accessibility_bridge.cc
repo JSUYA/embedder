@@ -377,6 +377,8 @@ void AccessibilityBridge::SetStateFromFlutterUpdate(ui::AXNodeData& node_data,
       (actions & kHasScrollingAction) == 0 && node.value.empty() &&
       node.label.empty() && node.hint.empty()) {
     node_data.AddState(ax::mojom::State::kIgnored);
+  } else if (flags->is_accessibility_focus_blocked) {
+    node_data.AddState(ax::mojom::State::kIgnored);
   } else {
     // kFlutterSemanticsFlagIsFocusable means a keyboard focusable, it is
     // different from semantics focusable.
