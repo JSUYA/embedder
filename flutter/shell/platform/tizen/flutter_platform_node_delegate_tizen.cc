@@ -24,9 +24,42 @@ FlutterPlatformNodeDelegateTizen::~FlutterPlatformNodeDelegateTizen() {
 void FlutterPlatformNodeDelegateTizen::Init(std::weak_ptr<OwnerBridge> bridge,
                                             ui::AXNode* node) {
   FlutterPlatformNodeDelegate::Init(bridge, node);
-  platform_node_ = ui::AXPlatformNode::Create(this);
-  FT_LOG(Debug) << "Create platform node for AXNode "
-                << node->data().ToString();
+  // Do not create an ATK platform node for ignored nodes. Ignored nodes
+  // (including accessibility-blocked nodes) should be invisible to AT-SPI so
+  // the screen reader cannot navigate to them at all. Their descendants remain
+  // accessible through the nearest unignored ancestor.
+  if (!node->data().IsIgnored()) {
+    platform_node_ = ui::AXPlatformNode::Create(this);
+    FT_LOG(Debug) << "Create platform node for AXNode "
+                  << node->data().ToString();
+  }
+}
+
+void FlutterPlatformNodeDelegateTizen::NodeDataChanged(
+    const ui::AXNodeData& old_node_data,
+    const ui::AXNodeData& new_node_data) {
+  // Handle transitions between ignored and non-ignored states by
+  // creating or destroying the ATK platform node accordingly.
+  const bool was_ignored = old_node_data.IsIgnored();
+  const bool is_ignored = new_node_data.IsIgnored();
+
+  if (was_ignored && !is_ignored) {
+    // Node became non-ignored: create the ATK platform node.
+    if (!platform_node_) {
+      platform_node_ = ui::AXPlatformNode::Create(this);
+      FT_LOG(Debug) << "Create platform node (unblocked) for AXNode "
+                    << new_node_data.id;
+    }
+  } else if (!was_ignored && is_ignored) {
+    // Node became ignored: destroy the ATK platform node so the screen reader
+    // can no longer navigate to it.
+    if (platform_node_) {
+      FT_LOG(Debug) << "Destroy platform node (blocked) for AXNode "
+                    << new_node_data.id;
+      platform_node_->Destroy();
+      platform_node_ = nullptr;
+    }
+  }
 }
 
 void FlutterPlatformNodeDelegateTizen::NotifyAccessibilityEvent(
@@ -103,14 +136,19 @@ FlutterPlatformNodeDelegateTizen::GetNativeViewAccessible() {
 }
 
 gfx::NativeViewAccessible FlutterPlatformNodeDelegateTizen::GetParent() {
-  gfx::NativeViewAccessible parent = FlutterPlatformNodeDelegate::GetParent();
-  if (!parent) {
-    parent = FlutterPlatformAppDelegateTizen::GetInstance()
-                 .GetWindow()
-                 .lock()
-                 ->GetNativeViewAccessible();
+  // Walk up through any ignored (e.g. accessibility-blocked) ancestors so that
+  // children of blocked nodes are correctly parented to the nearest visible
+  // (non-ignored) ancestor in the AT-SPI tree.
+  auto* unignored_parent = GetAXNode()->GetUnignoredParent();
+  if (unignored_parent) {
+    auto bridge_ptr = GetOwnerBridge().lock();
+    BASE_DCHECK(bridge_ptr);
+    return bridge_ptr->GetNativeAccessibleFromId(unignored_parent->id());
   }
-  return parent;
+  return FlutterPlatformAppDelegateTizen::GetInstance()
+      .GetWindow()
+      .lock()
+      ->GetNativeViewAccessible();
 }
 
 gfx::Rect FlutterPlatformNodeDelegateTizen::GetBoundsRect(
