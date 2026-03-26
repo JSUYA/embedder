@@ -377,6 +377,10 @@ void AccessibilityBridge::SetStateFromFlutterUpdate(ui::AXNodeData& node_data,
       (actions & kHasScrollingAction) == 0 && node.value.empty() &&
       node.label.empty() && node.hint.empty()) {
     node_data.AddState(ax::mojom::State::kIgnored);
+  } else if (flags->is_accessibility_focus_blocked) {
+    // Blocked nodes should be skipped by accessibility traversal while keeping
+    // any descendants reachable through the unignored tree.
+    node_data.AddState(ax::mojom::State::kIgnored);
   } else {
     // kFlutterSemanticsFlagIsFocusable means a keyboard focusable, it is
     // different from semantics focusable.
@@ -550,12 +554,15 @@ void AccessibilityBridge::SetTooltipFromFlutterUpdate(
 void AccessibilityBridge::SetTreeData(const SemanticsNode& node,
                                       ui::AXTreeUpdate& tree_update) {
   const FlutterSemanticsFlags* flags = node.flags;
+  const bool is_accessibility_focus_blocked =
+      flags->is_accessibility_focus_blocked;
   // Set selection of the focused node if:
   // 1. this text field has a valid selection
   // 2. this text field doesn't have a valid selection but had selection stored
   //    in the tree.
   if (flags->is_text_field &&
-      flags->is_focused == FlutterTristate::kFlutterTristateTrue) {
+      flags->is_focused == FlutterTristate::kFlutterTristateTrue &&
+      !is_accessibility_focus_blocked) {
     if (node.text_selection_base != -1) {
       tree_update.tree_data.sel_anchor_object_id = node.id;
       tree_update.tree_data.sel_anchor_offset = node.text_selection_base;
@@ -569,13 +576,23 @@ void AccessibilityBridge::SetTreeData(const SemanticsNode& node,
       tree_update.tree_data.sel_focus_offset = -1;
       tree_update.has_tree_data = true;
     }
+  } else if (tree_update.tree_data.sel_anchor_object_id == node.id) {
+    // Clear any selection held by this node when it loses focus or becomes
+    // focus-blocked.
+    tree_update.tree_data.sel_anchor_object_id = ui::AXNode::kInvalidAXID;
+    tree_update.tree_data.sel_anchor_offset = -1;
+    tree_update.tree_data.sel_focus_object_id = ui::AXNode::kInvalidAXID;
+    tree_update.tree_data.sel_focus_offset = -1;
+    tree_update.has_tree_data = true;
   }
 
-  if (flags->is_focused == FlutterTristate::kFlutterTristateTrue &&
+  if (!is_accessibility_focus_blocked &&
+      flags->is_focused == FlutterTristate::kFlutterTristateTrue &&
       tree_update.tree_data.focus_id != node.id) {
     tree_update.tree_data.focus_id = node.id;
     tree_update.has_tree_data = true;
-  } else if (flags->is_focused != FlutterTristate::kFlutterTristateTrue &&
+  } else if ((is_accessibility_focus_blocked ||
+              flags->is_focused != FlutterTristate::kFlutterTristateTrue) &&
              tree_update.tree_data.focus_id == node.id) {
     tree_update.tree_data.focus_id = ui::AXNode::kInvalidAXID;
     tree_update.has_tree_data = true;

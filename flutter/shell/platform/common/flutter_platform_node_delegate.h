@@ -172,6 +172,11 @@ class FlutterPlatformNodeDelegate : public ui::AXPlatformNodeDelegateBase {
   virtual const ui::AXTree::Selection GetUnignoredSelection() const override;
 
  private:
+  // Returns true if this node can receive accessibility focus. Nodes with the
+  // accessibility focus blocked flag set will return false, preventing the
+  // screen reader from highlighting them.
+  bool CanReceiveAccessibilityFocus() const;
+
   ui::AXNode* ax_node_;
   std::weak_ptr<OwnerBridge> bridge_;
   ui::AXUniqueId unique_id_;

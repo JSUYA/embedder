@@ -5061,13 +5061,23 @@ bool AXPlatformNodeAuraLinux::SetHighlighted(AtkObject* obj) {
     return false;
   }
 
+  // Do not highlight nodes that are not focusable or are ignored. This prevents
+  // accessibility-blocked nodes from being highlighted by the screen reader
+  // even when grab_highlight is called directly on their ATK object.
+  if (!GetData().HasState(ax::mojom::State::kFocusable) ||
+      GetData().IsIgnored()) {
+    return false;
+  }
+
   InvalidateHighlighted();
 
   auto focused_obj = AXPlatformNodeAuraLinux::FromAtkObject(obj);
 
   if (focused_obj) {
     focused_obj->ScrollToNode(AXPlatformNodeBase::ScrollType::Anywhere);
-    focused_obj->GrabFocus();
+    if (!focused_obj->GrabFocus()) {
+      return false;
+    }
     g_current_focused = obj;
 
     atk_object_notify_state_change(g_current_focused, ATK_STATE_HIGHLIGHTED,

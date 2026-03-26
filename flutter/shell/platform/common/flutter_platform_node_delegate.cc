@@ -38,6 +38,9 @@ bool FlutterPlatformNodeDelegate::AccessibilityPerformAction(
           target, FlutterSemanticsAction::kFlutterSemanticsActionTap, {});
       return true;
     case ax::mojom::Action::kFocus:
+      if (!CanReceiveAccessibilityFocus()) {
+        return false;
+      }
       bridge_ptr->SetLastFocusedId(target);
       bridge_ptr->DispatchAccessibilityAction(
           target,
@@ -55,6 +58,11 @@ bool FlutterPlatformNodeDelegate::AccessibilityPerformAction(
       return false;
   }
   return false;
+}
+
+bool FlutterPlatformNodeDelegate::CanReceiveAccessibilityFocus() const {
+  return !GetData().IsIgnored() &&
+         GetData().HasState(ax::mojom::State::kFocusable);
 }
 
 const ui::AXNodeData& FlutterPlatformNodeDelegate::GetData() const {
