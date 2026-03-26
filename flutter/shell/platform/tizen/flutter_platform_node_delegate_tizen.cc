@@ -139,11 +139,9 @@ gfx::NativeViewAccessible FlutterPlatformNodeDelegateTizen::GetParent() {
   // Walk up through any ignored (e.g. accessibility-blocked) ancestors so that
   // children of blocked nodes are correctly parented to the nearest visible
   // (non-ignored) ancestor in the AT-SPI tree.
-  auto* unignored_parent = GetAXNode()->GetUnignoredParent();
-  if (unignored_parent) {
-    auto bridge_ptr = GetOwnerBridge().lock();
-    BASE_DCHECK(bridge_ptr);
-    return bridge_ptr->GetNativeAccessibleFromId(unignored_parent->id());
+  gfx::NativeViewAccessible parent = FlutterPlatformNodeDelegate::GetParent();
+  if (parent) {
+    return parent;
   }
   return FlutterPlatformAppDelegateTizen::GetInstance()
       .GetWindow()
