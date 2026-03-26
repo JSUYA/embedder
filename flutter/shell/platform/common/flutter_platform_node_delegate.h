@@ -172,6 +172,8 @@ class FlutterPlatformNodeDelegate : public ui::AXPlatformNodeDelegateBase {
   virtual const ui::AXTree::Selection GetUnignoredSelection() const override;
 
  private:
+  bool CanReceiveAccessibilityFocus() const;
+
   ui::AXNode* ax_node_;
   std::weak_ptr<OwnerBridge> bridge_;
   ui::AXUniqueId unique_id_;

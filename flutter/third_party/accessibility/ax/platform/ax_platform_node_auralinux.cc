@@ -4358,6 +4358,9 @@ AXPlatformNodeAuraLinux::HitTestSync(gint x, gint y, AtkCoordType coord_type) {
 }
 
 bool AXPlatformNodeAuraLinux::GrabFocus() {
+  if (!GetData().HasState(ax::mojom::State::kFocusable))
+    return false;
+
   AXActionData action_data;
   action_data.action = ax::mojom::Action::kFocus;
   return delegate_->AccessibilityPerformAction(action_data);

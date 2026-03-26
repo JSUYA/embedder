@@ -246,6 +246,7 @@ executable("flutter_tizen_unittests") {
   testonly = true
 
   sources = [
+    "accessibility_bridge_unittests.cc",
     "channels/lifecycle_channel_unittests.cc",
     "channels/settings_channel_unittests.cc",
     "flutter_project_bundle_unittests.cc",
