@@ -158,7 +158,8 @@ void TizenRendererEgl::DestroySurface() {
       egl_resource_context_ = EGL_NO_CONTEXT;
     }
 
-    eglTerminate(egl_display_);
+    //eglTerminate(egl_display_);
+    eglReleaseThread();
     egl_display_ = EGL_NO_DISPLAY;
   }
 }
