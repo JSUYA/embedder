@@ -10,9 +10,11 @@
 #include <tizen-extension-client-protocol.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "flutter/shell/platform/tizen/ecore_wl2_context.h"
 #include "flutter/shell/platform/tizen/tizen_window.h"
 
 namespace flutter {
@@ -89,10 +91,18 @@ class TizenWindowEcoreWl2 : public TizenWindow {
 
   void PrepareInputMethod();
 
+  // Process-wide Ecore_Wl2 context that owns the init/shutdown and display
+  // connection. Held via shared_ptr so that the context survives as long as at
+  // least one window references it, regardless of creation/destruction order.
+  std::shared_ptr<EcoreWl2Context> ecore_wl2_context_;
+
+  // Non-owning aliases into ecore_wl2_context_. Kept as members to minimise
+  // churn for the large number of callsites that reference these directly.
   Ecore_Wl2_Display* ecore_wl2_display_ = nullptr;
+  wl_display* wl2_display_ = nullptr;
+
   Ecore_Wl2_Window* ecore_wl2_window_ = nullptr;
   Ecore_Wl2_Egl_Window* ecore_wl2_egl_window_ = nullptr;
-  wl_display* wl2_display_ = nullptr;
   wl_surface* wl2_surface_ = nullptr;
   std::vector<Ecore_Event_Handler*> ecore_event_handlers_;
   tizen_policy* tizen_policy_ = nullptr;

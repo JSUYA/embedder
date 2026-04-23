@@ -81,6 +81,7 @@ template("embedder") {
       "channels/settings_channel.cc",
       "channels/text_input_channel.cc",
       "channels/window_channel.cc",
+      "ecore_wl2_context.cc",
       "external_texture_pixel_egl.cc",
       "external_texture_surface_egl.cc",
       "flutter_platform_node_delegate_tizen.cc",

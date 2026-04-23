@@ -175,22 +175,20 @@ TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
 }
 
 bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
-  if (!ecore_wl2_init()) {
-    FT_LOG(Error) << "Could not initialize Ecore Wl2.";
+  // Acquire the process-wide Ecore_Wl2 context. The first caller performs
+  // ecore_wl2_init() and ecore_wl2_display_connect(nullptr); subsequent
+  // callers reuse the same display. The context is released only when the
+  // last window holding a reference is destroyed.
+  ecore_wl2_context_ = EcoreWl2Context::Acquire();
+  if (!ecore_wl2_context_ || !ecore_wl2_context_->IsValid()) {
+    FT_LOG(Error) << "Could not acquire a valid EcoreWl2Context.";
     return false;
   }
+  ecore_wl2_display_ = ecore_wl2_context_->display();
+  wl2_display_ = ecore_wl2_context_->wl_display_native();
 
-  ecore_wl2_display_ = ecore_wl2_display_connect(nullptr);
-  if (!ecore_wl2_display_) {
-    FT_LOG(Error) << "Ecore Wl2 display not found.";
-    return false;
-  }
-  wl2_display_ = ecore_wl2_display_get(ecore_wl2_display_);
-
-  ecore_wl2_sync();
-
-  int32_t width, height;
-  ecore_wl2_display_screen_size_get(ecore_wl2_display_, &width, &height);
+  int32_t width = 0, height = 0;
+  ecore_wl2_context_->GetScreenSize(&width, &height);
   if (width == 0 || height == 0) {
     FT_LOG(Error) << "Invalid screen size: " << width << " x " << height;
     return false;
@@ -627,11 +625,15 @@ void TizenWindowEcoreWl2::DestroyWindow() {
     ecore_wl2_window_ = nullptr;
   }
 
-  if (ecore_wl2_display_) {
-    ecore_wl2_display_disconnect(ecore_wl2_display_);
-    ecore_wl2_display_ = nullptr;
-  }
-  ecore_wl2_shutdown();
+  // Drop the non-owning display aliases before releasing the context so that
+  // nothing can accidentally dereference them after disconnect.
+  wl2_display_ = nullptr;
+  ecore_wl2_display_ = nullptr;
+
+  // Releasing the last shared_ptr to EcoreWl2Context triggers the process-wide
+  // ecore_wl2_display_disconnect() and ecore_wl2_shutdown(). If another window
+  // still holds a reference, the underlying display remains alive.
+  ecore_wl2_context_.reset();
 }
 
 TizenGeometry TizenWindowEcoreWl2::GetGeometry() {
