@@ -93,6 +93,7 @@ template("embedder") {
       "flutter_tizen_view.cc",
       "logger.cc",
       "system_utils.cc",
+      "tizen_egl_display.cc",
       "tizen_event_loop.cc",
       "tizen_input_method_context.cc",
       "tizen_renderer.cc",

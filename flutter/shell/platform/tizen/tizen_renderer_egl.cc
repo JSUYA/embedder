@@ -11,7 +11,6 @@
 #ifdef NUI_SUPPORT
 #include <dali/devel-api/adaptor-framework/native-image-source-queue.h>
 #endif
-#include <tbm_dummy_display.h>
 #include <tbm_surface.h>
 #include <tbm_surface_queue.h>
 
@@ -22,8 +21,9 @@
 namespace flutter {
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
-                                   bool enable_impeller)
-    : enable_impeller_(enable_impeller) {
+                                   bool enable_impeller,
+                                   EGLContext share_context)
+    : share_context_(share_context), enable_impeller_(enable_impeller) {
   TizenRenderer::CreateSurface(view_base);
 }
 
@@ -50,31 +50,29 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
                                      void* render_target_display,
                                      int32_t width,
                                      int32_t height) {
-  if (render_target_display) {
-    egl_display_ =
-        eglGetDisplay(static_cast<wl_display*>(render_target_display));
-  } else {
-    egl_display_ = eglGetDisplay(tbm_dummy_display_create());
-  }
-
-  if (egl_display_ == EGL_NO_DISPLAY) {
-    PrintEGLError();
-    FT_LOG(Error) << "Could not get EGL display.";
+  // Acquire the process-wide EGLDisplay wrapper. Previously each renderer
+  // called eglInitialize() and eglTerminate() independently; for multi-view
+  // we must not tear down the display when a secondary renderer goes away,
+  // so TizenEglDisplay owns that pair. It also caches the chosen EGLConfig
+  // and the extension string.
+  egl_display_holder_ =
+      TizenEglDisplay::Acquire(render_target_display, enable_impeller_);
+  if (!egl_display_holder_ || !egl_display_holder_->IsValid()) {
+    FT_LOG(Error) << "Could not acquire a valid TizenEglDisplay.";
     return false;
   }
-
-  if (!ChooseEGLConfiguration()) {
-    FT_LOG(Error) << "Could not choose an EGL configuration.";
-    return false;
-  }
-
-  egl_extension_str_ = eglQueryString(egl_display_, EGL_EXTENSIONS);
+  egl_display_ = egl_display_holder_->egl_display();
+  egl_config_ = egl_display_holder_->egl_config();
+  egl_extension_str_ = egl_display_holder_->extensions();
 
   {
     const EGLint attribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
 
+    // Pass |share_context_| so that GLES resources (textures, shaders) can be
+    // reused across views in the multi-view case. When no share context is
+    // provided this renderer becomes the share group root.
     egl_context_ =
-        eglCreateContext(egl_display_, egl_config_, EGL_NO_CONTEXT, attribs);
+        eglCreateContext(egl_display_, egl_config_, share_context_, attribs);
     if (egl_context_ == EGL_NO_CONTEXT) {
       PrintEGLError();
       FT_LOG(Error) << "Could not create an onscreen context.";
@@ -134,7 +132,7 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
 }
 
 void TizenRendererEgl::DestroySurface() {
-  if (egl_display_) {
+  if (egl_display_ != EGL_NO_DISPLAY) {
     eglMakeCurrent(egl_display_, EGL_NO_SURFACE, EGL_NO_SURFACE,
                    EGL_NO_CONTEXT);
 
@@ -158,99 +156,16 @@ void TizenRendererEgl::DestroySurface() {
       egl_resource_context_ = EGL_NO_CONTEXT;
     }
 
-    eglTerminate(egl_display_);
+    // Do NOT call eglTerminate() here. The EGLDisplay is owned by
+    // TizenEglDisplay (via egl_display_holder_) and must survive as long as
+    // any other renderer in the process still references it. Calling
+    // eglTerminate() would invalidate every context, surface, and image that
+    // belongs to sibling views. TizenEglDisplay performs eglTerminate() once
+    // in its destructor when the last holder drops.
     egl_display_ = EGL_NO_DISPLAY;
   }
-}
-
-bool TizenRendererEgl::ChooseEGLConfiguration() {
-  if (!eglInitialize(egl_display_, nullptr, nullptr)) {
-    PrintEGLError();
-    FT_LOG(Error) << "Could not initialize the EGL display.";
-    return false;
-  }
-
-  if (!eglBindAPI(EGL_OPENGL_ES_API)) {
-    PrintEGLError();
-    FT_LOG(Error) << "Could not bind the ES API.";
-    return false;
-  }
-
-  EGLint config_size = 0;
-  if (!eglGetConfigs(egl_display_, nullptr, 0, &config_size)) {
-    PrintEGLError();
-    FT_LOG(Error) << "Could not query framebuffer configurations.";
-    return false;
-  }
-
-  EGLConfig* configs = (EGLConfig*)calloc(config_size, sizeof(EGLConfig));
-  if (!configs) {
-    FT_LOG(Error) << "Failed to allocate memory for EGL configurations.";
-    return false;
-  }
-  EGLint num_config;
-  if (enable_impeller_) {
-    EGLint impeller_config_attribs[] = {
-        // clang-format off
-        EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
-        EGL_RED_SIZE,        8,
-        EGL_GREEN_SIZE,      8,
-        EGL_BLUE_SIZE,       8,
-        EGL_ALPHA_SIZE,      8,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_SAMPLE_BUFFERS,  1,
-        EGL_SAMPLES,         4,
-        EGL_STENCIL_SIZE,    8,
-        EGL_DEPTH_SIZE,      0,
-        EGL_NONE
-        // clang-format on
-    };
-    if (!eglChooseConfig(egl_display_, impeller_config_attribs, configs,
-                         config_size, &num_config)) {
-      free(configs);
-      PrintEGLError();
-      FT_LOG(Error) << "No matching configurations found.";
-      return false;
-    }
-  } else {
-    EGLint config_attribs[] = {
-        // clang-format off
-        EGL_SURFACE_TYPE,    EGL_WINDOW_BIT,
-        EGL_RED_SIZE,        8,
-        EGL_GREEN_SIZE,      8,
-        EGL_BLUE_SIZE,       8,
-        EGL_ALPHA_SIZE,      EGL_DONT_CARE,
-        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_SAMPLE_BUFFERS,  EGL_DONT_CARE,
-        EGL_SAMPLES,         EGL_DONT_CARE,
-        EGL_NONE
-        // clang-format on
-    };
-    if (!eglChooseConfig(egl_display_, config_attribs, configs, config_size,
-                         &num_config)) {
-      free(configs);
-      PrintEGLError();
-      FT_LOG(Error) << "No matching configurations found.";
-      return false;
-    }
-  }
-
-  int buffer_size = 32;
-  EGLint size;
-  for (int i = 0; i < num_config; i++) {
-    eglGetConfigAttrib(egl_display_, configs[i], EGL_BUFFER_SIZE, &size);
-    if (buffer_size == size) {
-      egl_config_ = configs[i];
-      break;
-    }
-  }
-  free(configs);
-  if (!egl_config_) {
-    FT_LOG(Error) << "No matching configuration found.";
-    return false;
-  }
-
-  return true;
+  egl_config_ = nullptr;
+  egl_display_holder_.reset();
 }
 
 bool TizenRendererEgl::OnMakeCurrent() {
