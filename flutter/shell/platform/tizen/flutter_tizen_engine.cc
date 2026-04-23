@@ -254,6 +254,8 @@ bool FlutterTizenEngine::RunEngine() {
       internal_plugin_registrar_->messenger());
   settings_channel_ = std::make_unique<SettingsChannel>(
       internal_plugin_registrar_->messenger());
+  multi_view_channel_ = std::make_unique<MultiViewChannel>(
+      internal_plugin_registrar_->messenger(), this);
 
   if (IsHeaded()) {
     texture_registrar_ = std::make_unique<FlutterTizenTextureRegistrar>(this);

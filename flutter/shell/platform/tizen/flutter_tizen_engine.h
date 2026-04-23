@@ -21,6 +21,7 @@
 #include "flutter/shell/platform/tizen/channels/app_control_channel.h"
 #include "flutter/shell/platform/tizen/channels/keyboard_channel.h"
 #include "flutter/shell/platform/tizen/channels/lifecycle_channel.h"
+#include "flutter/shell/platform/tizen/channels/multi_view_channel.h"
 #include "flutter/shell/platform/tizen/channels/navigation_channel.h"
 #include "flutter/shell/platform/tizen/channels/platform_view_channel.h"
 #include "flutter/shell/platform/tizen/channels/settings_channel.h"
@@ -323,6 +324,10 @@ class FlutterTizenEngine {
 
   // A plugin that implements the Flutter settings channel.
   std::unique_ptr<SettingsChannel> settings_channel_;
+
+  // A plugin that implements the flutter_tizen/multi_view channel used by
+  // the Dart TizenMultiView helper to add and remove secondary views.
+  std::unique_ptr<MultiViewChannel> multi_view_channel_;
 
   // The event loop for the main thread that allows for delayed task execution.
   std::unique_ptr<TizenPlatformEventLoop> event_loop_;
