@@ -13,9 +13,9 @@
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_view.h"
 #include "flutter/shell/platform/tizen/logger.h"
-#include "flutter/shell/platform/tizen/tizen_view_base.h"
 #include "flutter/shell/platform/tizen/public/flutter_platform_view.h"
 #include "flutter/shell/platform/tizen/tizen_view.h"
+#include "flutter/shell/platform/tizen/tizen_view_base.h"
 #ifdef NUI_SUPPORT
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
 #include "flutter/shell/platform/tizen/tizen_view_nui.h"
@@ -366,17 +366,17 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
   // |added=false|, so we must not double-invoke |callback| here.
   auto* raw_view = view.release();
   const bool issued = engine->AddView(
-      raw_view,
-      [callback, view_id, user_data](bool added) {
+      raw_view, [callback, view_id, raw_view, user_data](bool added) {
         if (callback) {
           callback(added, view_id, user_data);
+        }
+        if (!added) {
+          delete raw_view;
         }
       });
   if (!issued) {
     // engine->AddView has already reported failure through our lambda, so
-    // |callback| has already been invoked. Just release the view object
-    // and return.
-    delete raw_view;
+    // |callback| has already been invoked and |raw_view| has been deleted.
     return nullptr;
   }
 
@@ -411,16 +411,20 @@ bool FlutterDesktopEngineRemoveView(FlutterDesktopEngineRef engine_ref,
     return InvokeFailure();
   }
 
-  // Destroying the FlutterTizenView synchronously erases the entry from the
-  // engine's views_ map (see FlutterTizenEngine::RemoveView) and schedules a
-  // FlutterEngineRemoveView for the framework side. The operation completes
-  // asynchronously on the Flutter engine, but from the platform's point of
-  // view the view is already gone, so we report success here.
-  delete view;
-  if (callback) {
-    callback(true, view_id, user_data);
-  }
-  return true;
+  // FlutterEngineRemoveView is asynchronous and the embedder API requires the
+  // underlying surface to stay alive until the engine acknowledges removal.
+  // Keep the FlutterTizenView alive until that callback, then delete it.
+  return engine->RemoveView(
+      view_id,
+      [view, callback, view_id, user_data](bool removed) {
+        if (removed) {
+          delete view;
+        }
+        if (callback) {
+          callback(removed, view_id, user_data);
+        }
+      },
+      /*restore_on_failure=*/true);
 }
 
 FlutterDesktopViewRef FlutterDesktopEngineGetView(

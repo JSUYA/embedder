@@ -98,17 +98,19 @@ class FlutterTizenEngine {
   // For the implicit view this is a pure bookkeeping call; the Flutter
   // engine creates view 0 automatically during startup. For secondary
   // views it forwards to FlutterEngineAddView, which is asynchronous; the
-  // optional |callback| is invoked on the platform thread once the engine
-  // has registered the view (or has failed to).
+  // optional |callback| is invoked once the engine has registered the view
+  // (or has failed to).
   bool AddView(FlutterTizenView* view,
                std::function<void(bool /*added*/)> callback = {});
 
   // Removes the view identified by |view_id| from the engine. The implicit
   // view cannot be removed while the engine is running and this call will
-  // fail for kImplicitViewId. |callback| is invoked on the platform thread
-  // once the engine has acknowledged the removal.
+  // fail for kImplicitViewId. |callback| is invoked once the engine has
+  // acknowledged the removal. If |restore_on_failure| is true, a failed
+  // asynchronous removal restores the local registry entry.
   bool RemoveView(FlutterViewId view_id,
-                  std::function<void(bool /*removed*/)> callback = {});
+                  std::function<void(bool /*removed*/)> callback = {},
+                  bool restore_on_failure = false);
 
   // Returns the next available view ID for a secondary view. IDs are
   // monotonically increasing and not reused during the engine lifetime.

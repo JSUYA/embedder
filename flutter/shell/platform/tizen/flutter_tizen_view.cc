@@ -477,7 +477,7 @@ void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,
   event.device_kind = state->device_kind;
   event.buttons = state->buttons;
   event.view_id = view_id();
-  engine_->SendPointerEvent(event);
+  engine()->SendPointerEvent(event);
 }
 
 }  // namespace flutter

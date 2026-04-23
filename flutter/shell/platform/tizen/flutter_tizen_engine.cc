@@ -325,6 +325,15 @@ bool FlutterTizenEngine::AddView(FlutterTizenView* view,
   }
   const FlutterViewId view_id = view->view_id();
 
+  if (view_id != kImplicitViewId &&
+      (!view->renderer() || !view->renderer()->IsValid())) {
+    FT_LOG(Error) << "View " << view_id << " has no valid renderer.";
+    if (callback) {
+      callback(false);
+    }
+    return false;
+  }
+
   {
     std::lock_guard<std::mutex> lock(views_mutex_);
     if (views_.count(view_id) != 0) {
@@ -424,7 +433,8 @@ bool FlutterTizenEngine::AddView(FlutterTizenView* view,
 }
 
 bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
-                                    std::function<void(bool)> callback) {
+                                    std::function<void(bool)> callback,
+                                    bool restore_on_failure) {
   if (view_id == kImplicitViewId) {
     FT_LOG(Error) << "Cannot remove the implicit view.";
     if (callback) {
@@ -433,16 +443,15 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
     return false;
   }
 
-  // Erase from views_ synchronously. The FlutterTizenView instance is
-  // typically being destroyed right now (from its own destructor); leaving
-  // the pointer in views_ until the async FlutterEngineRemoveView callback
-  // fired would leave a dangling entry that other callers could dereference
-  // via GetView() / GetAllViews(). If the engine later rejects the remove,
-  // the Flutter framework side is out of sync with the platform side; we
-  // log and move on because the platform view is already gone.
+  // Erase from views_ synchronously so GetView() / GetAllViews() never expose
+  // a view that is pending removal. If the caller still owns the platform view
+  // and the engine rejects the removal, restore_on_failure lets us put the
+  // entry back so the caller can retry instead of leaking an unreachable view.
+  FlutterTizenView* removed_view = nullptr;
   {
     std::lock_guard<std::mutex> lock(views_mutex_);
-    if (views_.erase(view_id) == 0) {
+    auto it = views_.find(view_id);
+    if (it == views_.end()) {
       // Not an error: callers may attempt to remove a view that was never
       // registered (for example, when FlutterTizenView's destructor runs
       // for a view whose AddView() failed before insertion). Downgraded to
@@ -454,6 +463,8 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
       }
       return false;
     }
+    removed_view = it->second;
+    views_.erase(it);
   }
 
   if (!engine_) {
@@ -464,10 +475,14 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   }
 
   struct RemoveViewContext {
+    FlutterTizenEngine* engine;
     FlutterViewId view_id;
+    FlutterTizenView* removed_view;
+    bool restore_on_failure;
     std::function<void(bool)> user_callback;
   };
-  auto* ctx = new RemoveViewContext{view_id, std::move(callback)};
+  auto* ctx = new RemoveViewContext{this, view_id, removed_view,
+                                    restore_on_failure, std::move(callback)};
 
   FlutterRemoveViewInfo info = {};
   info.struct_size = sizeof(FlutterRemoveViewInfo);
@@ -475,7 +490,13 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   info.user_data = ctx;
   info.remove_view_callback = [](const FlutterRemoveViewResult* result) {
     auto* ctx = static_cast<RemoveViewContext*>(result->user_data);
-    // views_ was already erased synchronously above, so no map touch here.
+    // views_ was already erased synchronously above. If the engine rejects
+    // the removal while the caller still owns the platform view, restore the
+    // map entry so the view can be queried or removed again later.
+    if (!result->removed && ctx->restore_on_failure && ctx->removed_view) {
+      std::lock_guard<std::mutex> lock(ctx->engine->views_mutex_);
+      ctx->engine->views_[ctx->view_id] = ctx->removed_view;
+    }
     if (ctx->user_callback) {
       ctx->user_callback(result->removed);
     }
@@ -485,9 +506,12 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   FlutterEngineResult result = embedder_api_.RemoveView(engine_, &info);
   if (result != kSuccess) {
     FT_LOG(Error) << "FlutterEngineRemoveView failed with code " << result;
+    if (restore_on_failure && removed_view) {
+      std::lock_guard<std::mutex> lock(views_mutex_);
+      views_[view_id] = removed_view;
+    }
     // Mirror the AddView contract: always invoke user_callback before
-    // deleting ctx. views_ was already erased synchronously at the top of
-    // this function so our side is consistent regardless.
+    // deleting ctx.
     if (ctx->user_callback) {
       ctx->user_callback(false);
     }
@@ -536,8 +560,7 @@ void* FlutterTizenEngine::GetImplicitViewShareContext() {
   if (!implicit_view) {
     return nullptr;
   }
-  if (auto* egl =
-          dynamic_cast<TizenRendererEgl*>(implicit_view->renderer())) {
+  if (auto* egl = dynamic_cast<TizenRendererEgl*>(implicit_view->renderer())) {
     return reinterpret_cast<void*>(egl->egl_context());
   }
   return nullptr;

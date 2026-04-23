@@ -281,13 +281,14 @@ FLUTTER_EXPORT bool FlutterDesktopViewIsFocused(FlutterDesktopViewRef view);
 // The engine must have been started via FlutterDesktopViewCreateFromNewWindow
 // (which creates the implicit view). This function creates a fresh Tizen
 // window and registers it with the engine as a secondary view. The call is
-// asynchronous: |callback| is invoked on the platform thread once the Flutter
-// engine has acknowledged the registration. The returned |FlutterDesktopViewRef|
-// is valid immediately and can be used synchronously, but the Dart side will
-// not observe the new view until the callback fires.
+// asynchronous: |callback| is invoked once the Flutter engine has acknowledged
+// the registration. The returned |FlutterDesktopViewRef| is a pending handle;
+// callers should not use it as an active view until |callback| fires with
+// |added| true. The Dart side will not observe the new view until the callback
+// fires.
 //
 // Returns nullptr if the engine is not running or the platform window could
-// not be created; in that case |callback| is not invoked.
+// not be created; in that case |callback| is invoked with |added| false.
 //
 // NOTE: Until the multi-view compositor work lands, secondary views are
 // registered with the Flutter framework (so PlatformDispatcher.views sees
@@ -305,8 +306,9 @@ FLUTTER_EXPORT FlutterDesktopViewRef FlutterDesktopEngineAddView(
 // The implicit view (FLUTTER_DESKTOP_IMPLICIT_VIEW_ID) cannot be removed
 // this way; it is released together with the engine itself.
 // |callback| is invoked once the Flutter engine has unregistered the view.
-// After the callback fires the corresponding FlutterDesktopViewRef returned
-// from FlutterDesktopEngineAddView must no longer be used.
+// When |removed| is true, the corresponding FlutterDesktopViewRef returned
+// from FlutterDesktopEngineAddView has been destroyed and must no longer be
+// used.
 FLUTTER_EXPORT bool FlutterDesktopEngineRemoveView(
     FlutterDesktopEngineRef engine,
     FlutterDesktopViewId view_id,
@@ -315,9 +317,9 @@ FLUTTER_EXPORT bool FlutterDesktopEngineRemoveView(
 
 // Returns the view registered with |engine| under |view_id|, or nullptr if
 // no such view exists.
-FLUTTER_EXPORT FlutterDesktopViewRef FlutterDesktopEngineGetView(
-    FlutterDesktopEngineRef engine,
-    FlutterDesktopViewId view_id);
+FLUTTER_EXPORT FlutterDesktopViewRef
+FlutterDesktopEngineGetView(FlutterDesktopEngineRef engine,
+                            FlutterDesktopViewId view_id);
 
 // Returns the id of |view|, or FLUTTER_DESKTOP_IMPLICIT_VIEW_ID if |view| is
 // the implicit view.

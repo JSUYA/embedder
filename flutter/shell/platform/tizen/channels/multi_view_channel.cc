@@ -4,6 +4,7 @@
 
 #include "flutter/shell/platform/tizen/channels/multi_view_channel.h"
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -59,6 +60,11 @@ double GetDouble(const EncodableMap& map, const char* key, double fallback) {
   return fallback;
 }
 
+bool IsInt32(int64_t value) {
+  return value >= std::numeric_limits<int32_t>::min() &&
+         value <= std::numeric_limits<int32_t>::max();
+}
+
 }  // namespace
 
 MultiViewChannel::MultiViewChannel(BinaryMessenger* messenger,
@@ -96,13 +102,31 @@ void MultiViewChannel::HandleMethodCall(
   }
 
   if (method == "addView") {
-    const int32_t x = static_cast<int32_t>(GetInt(*args, "x", 0));
-    const int32_t y = static_cast<int32_t>(GetInt(*args, "y", 0));
-    const int32_t width = static_cast<int32_t>(GetInt(*args, "width", 0));
-    const int32_t height = static_cast<int32_t>(GetInt(*args, "height", 0));
+    const int64_t x_value = GetInt(*args, "x", 0);
+    const int64_t y_value = GetInt(*args, "y", 0);
+    const int64_t width_value = GetInt(*args, "width", 0);
+    const int64_t height_value = GetInt(*args, "height", 0);
+    if (!IsInt32(x_value) || !IsInt32(y_value) || !IsInt32(width_value) ||
+        !IsInt32(height_value)) {
+      result->Error("bad-args",
+                    "x, y, width and height must fit in a 32-bit integer.");
+      return;
+    }
+    if (width_value < 0 || height_value < 0) {
+      result->Error("bad-args", "width and height must be non-negative.");
+      return;
+    }
+    const int32_t x = static_cast<int32_t>(x_value);
+    const int32_t y = static_cast<int32_t>(y_value);
+    const int32_t width = static_cast<int32_t>(width_value);
+    const int32_t height = static_cast<int32_t>(height_value);
     const bool transparent = GetBool(*args, "transparent", false);
     const bool top_level = GetBool(*args, "topLevel", false);
     const double user_pixel_ratio = GetDouble(*args, "userPixelRatio", 0.0);
+    if (user_pixel_ratio < 0.0) {
+      result->Error("bad-args", "userPixelRatio must be non-negative.");
+      return;
+    }
 
     FlutterDesktopWindowProperties properties = {};
     properties.x = x;
@@ -121,8 +145,8 @@ void MultiViewChannel::HandleMethodCall(
     // The public C API guarantees the callback fires exactly once (even on
     // early failure paths), so the |holder| can be freed unconditionally in
     // the trampoline below without leaking or double-freeing.
-    auto* holder = new std::unique_ptr<MethodResult<EncodableValue>>(
-        std::move(result));
+    auto* holder =
+        new std::unique_ptr<MethodResult<EncodableValue>>(std::move(result));
     FlutterDesktopEngineRef engine_ref =
         reinterpret_cast<FlutterDesktopEngineRef>(engine_);
     FlutterDesktopEngineAddView(
@@ -149,9 +173,8 @@ void MultiViewChannel::HandleMethodCall(
       result->Error("bad-args", "viewId must be a positive integer.");
       return;
     }
-
-    auto* holder = new std::unique_ptr<MethodResult<EncodableValue>>(
-        std::move(result));
+    auto* holder =
+        new std::unique_ptr<MethodResult<EncodableValue>>(std::move(result));
     FlutterDesktopEngineRef engine_ref =
         reinterpret_cast<FlutterDesktopEngineRef>(engine_);
     FlutterDesktopEngineRemoveView(
