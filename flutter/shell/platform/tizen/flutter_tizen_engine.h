@@ -6,7 +6,11 @@
 #ifndef EMBEDDER_FLUTTER_TIZEN_ENGINE_H_
 #define EMBEDDER_FLUTTER_TIZEN_ENGINE_H_
 
+#include <functional>
 #include <memory>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 #include "flutter/shell/platform/common/accessibility_bridge.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/plugin_registrar.h"
@@ -63,8 +67,15 @@ class FlutterTizenEngine {
   FlutterTizenEngine& operator=(FlutterTizenEngine const&) = delete;
 
   // Creates a GL renderer from the given type.
+  //
+  // When |share_context| is not EGL_NO_CONTEXT, the returned renderer (if it
+  // is an EGL renderer) will create its GLES context in the same share group
+  // so that textures and shaders can be reused across views. Pass
+  // EGL_NO_CONTEXT for the first (implicit) view.
   std::unique_ptr<TizenRenderer> CreateRenderer(
-      FlutterDesktopRendererType renderer_type);
+      FlutterTizenView* view,
+      FlutterDesktopRendererType renderer_type,
+      void* share_context);
 
   // Starts running the engine with the given entrypoint. If null, defaults to
   // main().
@@ -78,13 +89,51 @@ class FlutterTizenEngine {
   // Stops the engine.
   bool StopEngine();
 
-  // Sets the view that is displaying this engine's content.
-  void SetView(FlutterTizenView* view,
-               FlutterDesktopRendererType renderer_type);
+  // Registers |view| with the engine. The first call must use
+  // kImplicitViewId to register the view associated with the initial
+  // Flutter window; subsequent calls register additional views and must use
+  // IDs returned by AllocateViewId(). The engine does not take ownership.
+  //
+  // For the implicit view this is a pure bookkeeping call; the Flutter
+  // engine creates view 0 automatically during startup. For secondary
+  // views it forwards to FlutterEngineAddView, which is asynchronous; the
+  // optional |callback| is invoked on the platform thread once the engine
+  // has registered the view (or has failed to).
+  bool AddView(FlutterTizenView* view,
+               std::function<void(bool /*added*/)> callback = {});
 
-  // The view displaying this engine's content, if any. This will be null for
-  // headless engines.
-  FlutterTizenView* view() { return view_; }
+  // Removes the view identified by |view_id| from the engine. The implicit
+  // view cannot be removed while the engine is running and this call will
+  // fail for kImplicitViewId. |callback| is invoked on the platform thread
+  // once the engine has acknowledged the removal.
+  bool RemoveView(FlutterViewId view_id,
+                  std::function<void(bool /*removed*/)> callback = {});
+
+  // Returns the next available view ID for a secondary view. IDs are
+  // monotonically increasing and not reused during the engine lifetime.
+  FlutterViewId AllocateViewId();
+
+  // Legacy accessor that returns the implicit view. Retained for the many
+  // callsites (plugin registrar, channels, flutter_tizen.cc public API)
+  // that were written before multi-view support existed.
+  FlutterTizenView* view() { return GetImplicitView(); }
+
+  // Returns the view with |view_id|, or nullptr if no such view is
+  // registered. Thread-safe.
+  FlutterTizenView* GetView(FlutterViewId view_id);
+
+  // Returns the implicit view (kImplicitViewId), or nullptr in headless or
+  // pre-registration states.
+  FlutterTizenView* GetImplicitView() { return GetView(kImplicitViewId); }
+
+  // Returns a snapshot of all registered views. Thread-safe.
+  std::vector<FlutterTizenView*> GetAllViews();
+
+  // Returns the EGLContext of the implicit view's renderer, or
+  // nullptr-equivalent if unavailable. Used as the share-group root when
+  // creating renderers for secondary views so that GLES resources are
+  // reusable across views.
+  void* GetImplicitViewShareContext();
 
   FlutterDesktopMessengerRef messenger() { return messenger_.get(); }
 
@@ -100,7 +149,11 @@ class FlutterTizenEngine {
     return texture_registrar_.get();
   }
 
-  TizenRenderer* renderer() { return renderer_.get(); }
+  // Returns the renderer of the implicit view. Retained for external
+  // texture registration and other code paths that pre-date per-view
+  // renderers. Returns nullptr until the implicit view has been
+  // registered via AddView().
+  TizenRenderer* renderer();
 
   AppControlChannel* app_control_channel() {
     return app_control_channel_.get();
@@ -143,9 +196,10 @@ class FlutterTizenEngine {
   // Informs the engine of an incoming pointer event.
   void SendPointerEvent(const FlutterPointerEvent& event);
 
-  // Sends a window metrics update to the Flutter engine using current window
-  // dimensions in physical
-  void SendWindowMetrics(int32_t x,
+  // Sends a window metrics update for the given |view_id| to the Flutter
+  // engine using current window dimensions in physical pixels.
+  void SendWindowMetrics(FlutterViewId view_id,
+                         int32_t x,
                          int32_t y,
                          int32_t width,
                          int32_t height,
@@ -189,7 +243,9 @@ class FlutterTizenEngine {
   friend class EngineModifier;
 
   // Whether the engine is running in headed or headless mode.
-  bool IsHeaded() { return view_ != nullptr; }
+  // Headed is defined as having at least one registered view. Headless
+  // service apps never call AddView().
+  bool IsHeaded();
 
   // Converts a FlutterPlatformMessage to an equivalent FlutterDesktopMessage.
   FlutterDesktopMessage ConvertToDesktopMessage(
@@ -216,8 +272,13 @@ class FlutterTizenEngine {
   // AOT data for this engine instance, if applicable.
   UniqueAotDataPtr aot_data_;
 
-  // The view displaying the content running in this engine, if any.
-  FlutterTizenView* view_ = nullptr;
+  // All views currently registered with the engine, keyed by view id.
+  // Engine does NOT own the view objects; ownership is elsewhere (the
+  // primary view owns the engine via std::unique_ptr, and secondary views
+  // are owned by the app layer that created them).
+  std::unordered_map<FlutterViewId, FlutterTizenView*> views_;
+  mutable std::mutex views_mutex_;
+  FlutterViewId next_view_id_ = kImplicitViewId + 1;
 
   // The plugin messenger handle given to API clients.
   std::unique_ptr<FlutterDesktopMessenger> messenger_;
@@ -265,9 +326,6 @@ class FlutterTizenEngine {
 
   // The event loop for the main thread that allows for delayed task execution.
   std::unique_ptr<TizenPlatformEventLoop> event_loop_;
-
-  // An interface between the Flutter rasterizer and the platform.
-  std::unique_ptr<TizenRenderer> renderer_;
 
   std::mutex vsync_mutex_;
 

@@ -19,6 +19,7 @@
 #include "flutter/shell/platform/tizen/channels/text_input_channel.h"
 #include "flutter/shell/platform/tizen/channels/window_channel.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
+#include "flutter/shell/platform/tizen/tizen_renderer.h"
 #include "flutter/shell/platform/tizen/tizen_view_base.h"
 #include "flutter/shell/platform/tizen/tizen_view_event_handler_delegate.h"
 
@@ -26,9 +27,30 @@ namespace flutter {
 
 class FlutterTizenView : public TizenViewEventHandlerDelegate {
  public:
+  // Constructor for the implicit (primary) view.
+  //
+  // Transfers ownership of |engine| into this view; the engine lives as
+  // long as the primary view does. |view_id| must be kImplicitViewId.
+  // This overload exists to preserve the existing single-view API and its
+  // ownership model (the primary FlutterTizenView instance is what owns
+  // the engine and tears it down in its destructor).
   FlutterTizenView(FlutterViewId view_id,
                    std::unique_ptr<TizenViewBase> tizen_view,
                    std::unique_ptr<FlutterTizenEngine> engine,
+                   FlutterDesktopRendererType renderer_type,
+                   double user_pixel_ratio = 0);
+
+  // Constructor for a secondary view that attaches to an already-running
+  // engine.
+  //
+  // |engine| is a non-owning pointer: the caller (typically the engine
+  // itself, via a higher-level API) is responsible for keeping the engine
+  // alive at least as long as the view. Secondary views do NOT stop the
+  // engine when destroyed; they only unregister themselves via
+  // FlutterTizenEngine::RemoveView.
+  FlutterTizenView(FlutterViewId view_id,
+                   std::unique_ptr<TizenViewBase> tizen_view,
+                   FlutterTizenEngine* engine,
                    FlutterDesktopRendererType renderer_type,
                    double user_pixel_ratio = 0);
 
@@ -40,9 +62,15 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
   // Set up window dependent channels.
   void SetupChannels();
 
-  FlutterTizenEngine* engine() { return engine_.get(); }
+  FlutterTizenEngine* engine() {
+    return owned_engine_ ? owned_engine_.get() : engine_ptr_;
+  }
 
   TizenViewBase* tizen_view() { return tizen_view_.get(); }
+
+  // Per-view renderer. Each view owns its surface and (for EGL) its own
+  // GLES contexts in the share group rooted at the implicit view.
+  TizenRenderer* renderer() { return renderer_.get(); }
 
   void Resize(int32_t width, int32_t height);
 
@@ -162,8 +190,15 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
   // The platform view associated with this Flutter view.
   std::unique_ptr<TizenViewBase> tizen_view_;
 
-  // The engine associated with this view.
-  std::unique_ptr<FlutterTizenEngine> engine_;
+  // Engine ownership, separated so that only the primary view tears down
+  // the engine on destruction. Exactly one of |owned_engine_| and
+  // |engine_ptr_| is non-null for the lifetime of this view.
+  std::unique_ptr<FlutterTizenEngine> owned_engine_;
+  FlutterTizenEngine* engine_ptr_ = nullptr;
+
+  // Renderer owned by this view. Each view has its own surface; GLES
+  // contexts may share a group with the implicit view's renderer.
+  std::unique_ptr<TizenRenderer> renderer_;
 
   // Keeps track of pointer states.
   std::unordered_map<int32_t, std::unique_ptr<PointerState>> pointer_states_;

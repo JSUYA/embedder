@@ -16,7 +16,9 @@
 #include "flutter/shell/platform/tizen/logger.h"
 #include "flutter/shell/platform/tizen/system_utils.h"
 #include "flutter/shell/platform/tizen/tizen_input_method_context.h"
+#include "flutter/shell/platform/tizen/tizen_renderer.h"
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
+#include "flutter/shell/platform/tizen/tizen_view_base.h"
 
 #ifdef FLUTTER_TIZEN_EXPERIMENTAL
 #include "flutter/shell/platform/tizen/tizen_renderer_vulkan.h"
@@ -87,25 +89,35 @@ FlutterTizenEngine::~FlutterTizenEngine() {
 }
 
 std::unique_ptr<TizenRenderer> FlutterTizenEngine::CreateRenderer(
-    FlutterDesktopRendererType renderer_type) {
+    FlutterTizenView* view,
+    FlutterDesktopRendererType renderer_type,
+    void* share_context) {
+  if (!view) {
+    FT_LOG(Error) << "CreateRenderer requires a non-null view.";
+    return nullptr;
+  }
   switch (renderer_type) {
     case FlutterDesktopRendererType::kEGL:
 #ifdef NUI_SUPPORT
       if (auto* nui_view =
-              dynamic_cast<flutter::TizenViewNui*>(view_->tizen_view())) {
+              dynamic_cast<flutter::TizenViewNui*>(view->tizen_view())) {
+        // NUI renderer does not currently participate in multi-view share
+        // groups; |share_context| is ignored.
         return std::make_unique<TizenRendererNuiGL>(
             nui_view, project_->HasArgument("--enable-impeller"));
       }
 #endif
       return std::make_unique<TizenRendererEgl>(
-          view_->tizen_view(), project_->HasArgument("--enable-impeller"));
+          view->tizen_view(), project_->HasArgument("--enable-impeller"),
+          reinterpret_cast<EGLContext>(share_context));
     case FlutterDesktopRendererType::kEVulkan:
 #ifdef FLUTTER_TIZEN_EXPERIMENTAL
-      return std::make_unique<TizenRendererVulkan>(view_->tizen_view());
+      return std::make_unique<TizenRendererVulkan>(view->tizen_view());
 #else
       return nullptr;
 #endif
   }
+  return nullptr;
 }
 
 bool FlutterTizenEngine::RunEngine() {
@@ -113,7 +125,10 @@ bool FlutterTizenEngine::RunEngine() {
     FT_LOG(Error) << "The engine has already started.";
     return false;
   }
-  if (IsHeaded() && !renderer_->IsValid()) {
+  // For the headed case, RunEngine must be called AFTER the implicit view has
+  // been registered so that its renderer can supply the renderer config. The
+  // check is delegated to TizenRenderer::IsValid() via renderer().
+  if (IsHeaded() && (!renderer() || !renderer()->IsValid())) {
     FT_LOG(Error) << "The display was not valid.";
     return false;
   }
@@ -208,7 +223,7 @@ bool FlutterTizenEngine::RunEngine() {
     engine->OnUpdateSemantics(update);
   };
 
-  if (IsHeaded() && dynamic_cast<TizenRendererEgl*>(renderer_.get())) {
+  if (IsHeaded() && dynamic_cast<TizenRendererEgl*>(renderer())) {
     vsync_waiter_ = std::make_unique<TizenVsyncWaiter>(this);
     args.vsync_callback = [](void* user_data, intptr_t baton) -> void {
       auto* engine = static_cast<FlutterTizenEngine*>(user_data);
@@ -283,17 +298,227 @@ bool FlutterTizenEngine::StopEngine() {
     }
 
     FlutterEngineResult result = embedder_api_.Shutdown(engine_);
-    view_ = nullptr;
+    {
+      // Flutter engine's Shutdown releases its own view registrations.
+      // Clear our bookkeeping so that any later calls do not dereference
+      // stale view pointers (the views themselves are destroyed by their
+      // owners, not by the engine).
+      std::lock_guard<std::mutex> lock(views_mutex_);
+      views_.clear();
+    }
     engine_ = nullptr;
     return (result == kSuccess);
   }
   return false;
 }
 
-void FlutterTizenEngine::SetView(FlutterTizenView* view,
-                                 FlutterDesktopRendererType renderer_type) {
-  view_ = view;
-  renderer_ = CreateRenderer(renderer_type);
+bool FlutterTizenEngine::AddView(FlutterTizenView* view,
+                                 std::function<void(bool)> callback) {
+  if (!view) {
+    FT_LOG(Error) << "AddView called with null view.";
+    if (callback) {
+      callback(false);
+    }
+    return false;
+  }
+  const FlutterViewId view_id = view->view_id();
+
+  {
+    std::lock_guard<std::mutex> lock(views_mutex_);
+    if (views_.count(view_id) != 0) {
+      FT_LOG(Error) << "View " << view_id << " is already registered.";
+      if (callback) {
+        callback(false);
+      }
+      return false;
+    }
+    views_[view_id] = view;
+  }
+
+  // The implicit view is registered with the Flutter engine automatically
+  // during startup, so there is no corresponding FlutterEngineAddView call.
+  // For secondary views we forward the registration to the engine
+  // asynchronously.
+  if (view_id == kImplicitViewId) {
+    if (callback) {
+      callback(true);
+    }
+    return true;
+  }
+
+  if (!engine_) {
+    // Caller must start the engine (via the implicit view) before adding
+    // secondary views. Undo the local registration so subsequent attempts
+    // can succeed once the engine is running.
+    {
+      std::lock_guard<std::mutex> lock(views_mutex_);
+      views_.erase(view_id);
+    }
+    FT_LOG(Error)
+        << "Cannot add secondary view: engine has not been started yet.";
+    if (callback) {
+      callback(false);
+    }
+    return false;
+  }
+
+  // Build initial window metrics event for the new view. The Flutter engine
+  // uses this to initialize its per-view state.
+  TizenGeometry geometry = view->tizen_view()->GetGeometry();
+  FlutterWindowMetricsEvent metrics = {};
+  metrics.struct_size = sizeof(FlutterWindowMetricsEvent);
+  metrics.left = static_cast<size_t>(geometry.left);
+  metrics.top = static_cast<size_t>(geometry.top);
+  metrics.width = static_cast<size_t>(geometry.width);
+  metrics.height = static_cast<size_t>(geometry.height);
+  metrics.pixel_ratio = ComputePixelRatio(view->tizen_view()->GetDpi());
+  metrics.view_id = view_id;
+
+  struct AddViewContext {
+    FlutterTizenEngine* engine;
+    FlutterViewId view_id;
+    std::function<void(bool)> user_callback;
+  };
+  auto* ctx = new AddViewContext{this, view_id, std::move(callback)};
+
+  FlutterAddViewInfo info = {};
+  info.struct_size = sizeof(FlutterAddViewInfo);
+  info.view_id = view_id;
+  info.view_metrics = &metrics;
+  info.user_data = ctx;
+  info.add_view_callback = [](const FlutterAddViewResult* result) {
+    auto* ctx = static_cast<AddViewContext*>(result->user_data);
+    if (!result->added) {
+      // The Flutter engine rejected the view. Remove our bookkeeping so that
+      // the ID does not leak and the caller can retry or fall back.
+      std::lock_guard<std::mutex> lock(ctx->engine->views_mutex_);
+      ctx->engine->views_.erase(ctx->view_id);
+    }
+    if (ctx->user_callback) {
+      ctx->user_callback(result->added);
+    }
+    delete ctx;
+  };
+
+  FlutterEngineResult result = embedder_api_.AddView(engine_, &info);
+  if (result != kSuccess) {
+    FT_LOG(Error) << "FlutterEngineAddView failed with code " << result;
+    delete ctx;
+    {
+      std::lock_guard<std::mutex> lock(views_mutex_);
+      views_.erase(view_id);
+    }
+    return false;
+  }
+  return true;
+}
+
+bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
+                                    std::function<void(bool)> callback) {
+  if (view_id == kImplicitViewId) {
+    FT_LOG(Error) << "Cannot remove the implicit view.";
+    if (callback) {
+      callback(false);
+    }
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(views_mutex_);
+    if (views_.count(view_id) == 0) {
+      FT_LOG(Error) << "Unknown view " << view_id << " in RemoveView.";
+      if (callback) {
+        callback(false);
+      }
+      return false;
+    }
+  }
+
+  if (!engine_) {
+    std::lock_guard<std::mutex> lock(views_mutex_);
+    views_.erase(view_id);
+    if (callback) {
+      callback(true);
+    }
+    return true;
+  }
+
+  struct RemoveViewContext {
+    FlutterTizenEngine* engine;
+    FlutterViewId view_id;
+    std::function<void(bool)> user_callback;
+  };
+  auto* ctx = new RemoveViewContext{this, view_id, std::move(callback)};
+
+  FlutterRemoveViewInfo info = {};
+  info.struct_size = sizeof(FlutterRemoveViewInfo);
+  info.view_id = view_id;
+  info.user_data = ctx;
+  info.remove_view_callback = [](const FlutterRemoveViewResult* result) {
+    auto* ctx = static_cast<RemoveViewContext*>(result->user_data);
+    if (result->removed) {
+      std::lock_guard<std::mutex> lock(ctx->engine->views_mutex_);
+      ctx->engine->views_.erase(ctx->view_id);
+    }
+    if (ctx->user_callback) {
+      ctx->user_callback(result->removed);
+    }
+    delete ctx;
+  };
+
+  FlutterEngineResult result = embedder_api_.RemoveView(engine_, &info);
+  if (result != kSuccess) {
+    FT_LOG(Error) << "FlutterEngineRemoveView failed with code " << result;
+    delete ctx;
+    return false;
+  }
+  return true;
+}
+
+FlutterViewId FlutterTizenEngine::AllocateViewId() {
+  std::lock_guard<std::mutex> lock(views_mutex_);
+  return next_view_id_++;
+}
+
+FlutterTizenView* FlutterTizenEngine::GetView(FlutterViewId view_id) {
+  std::lock_guard<std::mutex> lock(views_mutex_);
+  auto it = views_.find(view_id);
+  return it == views_.end() ? nullptr : it->second;
+}
+
+std::vector<FlutterTizenView*> FlutterTizenEngine::GetAllViews() {
+  std::lock_guard<std::mutex> lock(views_mutex_);
+  std::vector<FlutterTizenView*> result;
+  result.reserve(views_.size());
+  for (const auto& [id, view] : views_) {
+    result.push_back(view);
+  }
+  return result;
+}
+
+bool FlutterTizenEngine::IsHeaded() {
+  std::lock_guard<std::mutex> lock(views_mutex_);
+  return !views_.empty();
+}
+
+TizenRenderer* FlutterTizenEngine::renderer() {
+  // Renderer ownership moved to FlutterTizenView in multi-view refactor.
+  // The implicit view's renderer is returned for backward compatibility
+  // with external texture registration and other engine-level code paths.
+  FlutterTizenView* implicit_view = GetImplicitView();
+  return implicit_view ? implicit_view->renderer() : nullptr;
+}
+
+void* FlutterTizenEngine::GetImplicitViewShareContext() {
+  FlutterTizenView* implicit_view = GetImplicitView();
+  if (!implicit_view) {
+    return nullptr;
+  }
+  if (auto* egl =
+          dynamic_cast<TizenRendererEgl*>(implicit_view->renderer())) {
+    return reinterpret_cast<void*>(egl->egl_context());
+  }
+  return nullptr;
 }
 
 void FlutterTizenEngine::AddPluginRegistrarDestructionCallback(
@@ -353,7 +578,8 @@ void FlutterTizenEngine::SendPointerEvent(const FlutterPointerEvent& event) {
   embedder_api_.SendPointerEvent(engine_, &event, 1);
 }
 
-void FlutterTizenEngine::SendWindowMetrics(int32_t x,
+void FlutterTizenEngine::SendWindowMetrics(FlutterViewId view_id,
+                                           int32_t x,
                                            int32_t y,
                                            int32_t width,
                                            int32_t height,
@@ -365,6 +591,7 @@ void FlutterTizenEngine::SendWindowMetrics(int32_t x,
   event.width = static_cast<size_t>(width);
   event.height = static_cast<size_t>(height);
   event.pixel_ratio = pixel_ratio;
+  event.view_id = view_id;
   embedder_api_.SendWindowMetricsEvent(engine_, &event);
 }
 
@@ -487,15 +714,21 @@ void FlutterTizenEngine::OnUpdateSemantics(
 
   accessibility_bridge_->CommitUpdates();
 
-  // Attaches the accessibility root to the window delegate.
+  // Attaches the accessibility root to the window delegate. For multi-view,
+  // accessibility is currently anchored to the implicit view's geometry
+  // because Tizen's accessibility API exposes a single app-level tree.
+  // Secondary views share the same tree.
   std::weak_ptr<FlutterPlatformNodeDelegate> root =
       accessibility_bridge_->GetFlutterPlatformNodeDelegateFromID(0);
   std::shared_ptr<FlutterPlatformWindowDelegateTizen> window =
       FlutterPlatformAppDelegateTizen::GetInstance().GetWindow().lock();
-  TizenGeometry geometry = view_->tizen_view()->GetGeometry();
-  window->SetGeometry(geometry.left, geometry.top, geometry.width,
-                      geometry.height);
-  window->SetRootNode(root);
+  FlutterTizenView* implicit_view = GetImplicitView();
+  if (implicit_view && window) {
+    TizenGeometry geometry = implicit_view->tizen_view()->GetGeometry();
+    window->SetGeometry(geometry.left, geometry.top, geometry.width,
+                        geometry.height);
+    window->SetRootNode(root);
+  }
 }
 
 }  // namespace flutter

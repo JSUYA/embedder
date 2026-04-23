@@ -49,10 +49,50 @@ FlutterTizenView::FlutterTizenView(FlutterViewId view_id,
                                    double user_pixel_ratio)
     : view_id_(view_id),
       tizen_view_(std::move(tizen_view)),
-      engine_(std::move(engine)),
+      owned_engine_(std::move(engine)),
       user_pixel_ratio_(user_pixel_ratio) {
+  // The primary (implicit) view owns the engine. This constructor preserves
+  // the single-view ownership model from before multi-view support.
   tizen_view_->SetView(this);
-  engine_->SetView(this, renderer_type);
+
+  // Create the per-view renderer. The implicit view is the share-group root
+  // so it passes EGL_NO_CONTEXT (nullptr) as the share context.
+  renderer_ = owned_engine_->CreateRenderer(this, renderer_type, nullptr);
+
+  // Register with the engine. For the implicit view this is bookkeeping;
+  // the Flutter engine handles view 0 automatically during startup.
+  owned_engine_->AddView(this);
+
+  SetupChannels();
+
+  if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
+    window->BindKeys(kBindableSystemKeys);
+  }
+}
+
+FlutterTizenView::FlutterTizenView(FlutterViewId view_id,
+                                   std::unique_ptr<TizenViewBase> tizen_view,
+                                   FlutterTizenEngine* engine,
+                                   FlutterDesktopRendererType renderer_type,
+                                   double user_pixel_ratio)
+    : view_id_(view_id),
+      tizen_view_(std::move(tizen_view)),
+      engine_ptr_(engine),
+      user_pixel_ratio_(user_pixel_ratio) {
+  // Secondary view: does NOT own the engine. The engine must outlive this
+  // view (caller's responsibility).
+  tizen_view_->SetView(this);
+
+  // Share the GLES context group with the implicit view's renderer so that
+  // textures, shaders and buffers are reusable across views.
+  void* share_context = engine_ptr_->GetImplicitViewShareContext();
+  renderer_ = engine_ptr_->CreateRenderer(this, renderer_type, share_context);
+
+  // AddView forwards to FlutterEngineAddView asynchronously. Callers that
+  // need completion signalling should use the engine-level AddView directly;
+  // this constructor fires and forgets.
+  engine_ptr_->AddView(this);
+
   SetupChannels();
 
   if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
@@ -61,17 +101,28 @@ FlutterTizenView::FlutterTizenView(FlutterViewId view_id,
 }
 
 FlutterTizenView::~FlutterTizenView() {
-  if (engine_) {
-    if (platform_view_channel_) {
-      platform_view_channel_->Dispose();
-    }
-    engine_->StopEngine();
+  if (platform_view_channel_) {
+    platform_view_channel_->Dispose();
   }
+
+  if (owned_engine_) {
+    // Primary view: tear down the engine. This releases all other views
+    // registered with the engine as well.
+    owned_engine_->StopEngine();
+  } else if (engine_ptr_) {
+    // Secondary view: unregister from the engine but leave the engine
+    // running for other views.
+    engine_ptr_->RemoveView(view_id_);
+  }
+
+  // Destroy the per-view renderer last so that no callback can attempt to
+  // render into a freed surface.
+  renderer_.reset();
 }
 
 void FlutterTizenView::SetupChannels() {
   internal_plugin_registrar_ =
-      std::make_unique<PluginRegistrar>(engine_->plugin_registrar());
+      std::make_unique<PluginRegistrar>(engine()->plugin_registrar());
 
   BinaryMessenger* messenger = internal_plugin_registrar_->messenger();
 
@@ -115,7 +166,9 @@ void FlutterTizenView::OnResize(int32_t left,
     std::swap(width, height);
   }
 
-  engine_->renderer()->ResizeSurface(width, height);
+  if (renderer_) {
+    renderer_->ResizeSurface(width, height);
+  }
 
   SendWindowMetrics(left, top, width, height, 0.0);
 }
@@ -124,7 +177,7 @@ void FlutterTizenView::OnRotate(int32_t degree) {
   TizenGeometry geometry = tizen_view_->GetGeometry();
   int32_t width = geometry.width;
   int32_t height = geometry.height;
-  if (dynamic_cast<TizenRendererEgl*>(engine_->renderer())) {
+  if (dynamic_cast<TizenRendererEgl*>(renderer_.get())) {
     rotation_degree_ = degree;
     // Compute renderer transformation based on the angle of rotation.
     double rad = (360 - rotation_degree_) * M_PI / 180;
@@ -149,7 +202,9 @@ void FlutterTizenView::OnRotate(int32_t degree) {
     }
   }
 
-  engine_->renderer()->ResizeSurface(width, height);
+  if (renderer_) {
+    renderer_->ResizeSurface(width, height);
+  }
 
   // Window position does not change on rotation regardless of its
   // orientation.
@@ -279,11 +334,11 @@ void FlutterTizenView::OnKey(const char* key,
     }
   }
 
-  if (engine_->keyboard_channel()) {
+  if (engine()->keyboard_channel()) {
     bool& backkey_handled = backkey_handled_;
-    engine_->keyboard_channel()->SendKey(
+    engine()->keyboard_channel()->SendKey(
         key, string, compose, modifiers, scan_code, is_down,
-        [engine = engine_.get(), symbol = std::string(key), is_down,
+        [engine_ref = engine(), symbol = std::string(key), is_down,
          &backkey_handled](bool handled) {
           // If System's back key is handled in key-down, it should be
           // handled so that "popRoute" is not called in key-up.
@@ -299,8 +354,8 @@ void FlutterTizenView::OnKey(const char* key,
             return;
           }
           if (symbol == kBackKey && !is_down) {
-            if (engine->navigation_channel()) {
-              engine->navigation_channel()->PopRoute();
+            if (engine_ref->navigation_channel()) {
+              engine_ref->navigation_channel()->PopRoute();
             }
           } else if (symbol == kExitKey && !is_down) {
             ui_app_exit();
@@ -348,7 +403,7 @@ void FlutterTizenView::SendWindowMetrics(int32_t left,
     }
   }
 
-  engine_->SendWindowMetrics(left, top, width, height, pixel_ratio);
+  engine()->SendWindowMetrics(view_id_, left, top, width, height, pixel_ratio);
 }
 
 void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,
@@ -385,7 +440,7 @@ void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,
     event.device_kind = state->device_kind;
     event.buttons = state->buttons;
     event.view_id = view_id();
-    engine_->SendPointerEvent(event);
+    engine()->SendPointerEvent(event);
 
     state->flutter_state_is_added = true;
   }
