@@ -88,16 +88,19 @@ FlutterTizenView::FlutterTizenView(FlutterViewId view_id,
   void* share_context = engine_ptr_->GetImplicitViewShareContext();
   renderer_ = engine_ptr_->CreateRenderer(this, renderer_type, share_context);
 
-  // AddView forwards to FlutterEngineAddView asynchronously. Callers that
-  // need completion signalling should use the engine-level AddView directly;
-  // this constructor fires and forgets.
-  engine_ptr_->AddView(this);
-
+  // Channel setup must happen before AddView() because
+  // SetupChannels subscribes to Flutter messages that the engine
+  // may dispatch as part of registering the view.
   SetupChannels();
 
   if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
     window->BindKeys(kBindableSystemKeys);
   }
+
+  // Note: engine->AddView() is NOT called here. The caller (e.g.
+  // FlutterDesktopEngineAddView) is responsible for invoking it so that the
+  // async FlutterEngineAddView callback can be forwarded all the way back
+  // to the application.
 }
 
 FlutterTizenView::~FlutterTizenView() {

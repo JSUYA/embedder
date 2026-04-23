@@ -13,6 +13,7 @@
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_view.h"
 #include "flutter/shell/platform/tizen/logger.h"
+#include "flutter/shell/platform/tizen/tizen_view_base.h"
 #include "flutter/shell/platform/tizen/public/flutter_platform_view.h"
 #include "flutter/shell/platform/tizen/tizen_view.h"
 #ifdef NUI_SUPPORT
@@ -311,6 +312,106 @@ void FlutterDesktopRegisterViewFactory(
   registrar->engine->view()->platform_view_channel()->ViewFactories().insert(
       std::pair<std::string, std::unique_ptr<PlatformViewFactory>>(
           view_type, std::move(view_factory)));
+}
+
+// ========== Multi-view ==========
+
+FlutterDesktopViewRef FlutterDesktopEngineAddView(
+    FlutterDesktopEngineRef engine_ref,
+    const FlutterDesktopWindowProperties& window_properties,
+    FlutterDesktopAddViewCallback callback,
+    void* user_data) {
+  flutter::FlutterTizenEngine* engine = EngineFromHandle(engine_ref);
+  if (!engine || !engine->IsRunning()) {
+    FT_LOG(Error)
+        << "FlutterDesktopEngineAddView requires a running engine; call "
+           "FlutterDesktopViewCreateFromNewWindow first.";
+    return nullptr;
+  }
+
+  const flutter::FlutterViewId view_id = engine->AllocateViewId();
+
+  flutter::TizenGeometry window_geometry = {
+      window_properties.x, window_properties.y, window_properties.width,
+      window_properties.height};
+
+  auto window = std::make_unique<flutter::TizenWindowEcoreWl2>(
+      window_geometry, window_properties.transparent,
+      window_properties.focusable, window_properties.top_level,
+      window_properties.pointing_device_support,
+      window_properties.floating_menu_support, window_properties.window_handle,
+      window_properties.renderer_type == kEVulkan);
+
+  // Secondary-view constructor: engine is non-owning, RemoveView on destroy.
+  // This constructor does NOT call engine->AddView(); the caller is
+  // responsible so the async callback can be threaded all the way back to
+  // the application.
+  auto view = std::make_unique<flutter::FlutterTizenView>(
+      view_id, std::move(window), engine, window_properties.renderer_type,
+      window_properties.user_pixel_ratio);
+
+  // Forward the async completion callback through engine->AddView. If the
+  // embedder API call itself fails synchronously we release the view here
+  // so the caller does not receive a dangling ref.
+  auto* raw_view = view.release();
+  const bool issued = engine->AddView(
+      raw_view,
+      [callback, view_id, user_data](bool added) {
+        if (callback) {
+          callback(added, view_id, user_data);
+        }
+      });
+  if (!issued) {
+    delete raw_view;
+    return nullptr;
+  }
+
+  raw_view->SendInitialGeometry();
+  return HandleForView(raw_view);
+}
+
+bool FlutterDesktopEngineRemoveView(FlutterDesktopEngineRef engine_ref,
+                                    FlutterDesktopViewId view_id,
+                                    FlutterDesktopRemoveViewCallback callback,
+                                    void* user_data) {
+  flutter::FlutterTizenEngine* engine = EngineFromHandle(engine_ref);
+  if (!engine) {
+    return false;
+  }
+  if (view_id == FLUTTER_DESKTOP_IMPLICIT_VIEW_ID) {
+    FT_LOG(Error) << "The implicit view cannot be removed via "
+                     "FlutterDesktopEngineRemoveView.";
+    return false;
+  }
+
+  flutter::FlutterTizenView* view = engine->GetView(view_id);
+  if (!view) {
+    return false;
+  }
+
+  // Destroying the FlutterTizenView invokes engine->RemoveView() on the
+  // secondary view, which forwards to FlutterEngineRemoveView.
+  // The caller's callback is invoked once the engine acknowledges.
+  delete view;
+  if (callback) {
+    callback(true, view_id, user_data);
+  }
+  return true;
+}
+
+FlutterDesktopViewRef FlutterDesktopEngineGetView(
+    FlutterDesktopEngineRef engine_ref,
+    FlutterDesktopViewId view_id) {
+  flutter::FlutterTizenEngine* engine = EngineFromHandle(engine_ref);
+  if (!engine) {
+    return nullptr;
+  }
+  return HandleForView(engine->GetView(view_id));
+}
+
+FlutterDesktopViewId FlutterDesktopViewGetId(FlutterDesktopViewRef view_ref) {
+  flutter::FlutterTizenView* view = ViewFromHandle(view_ref);
+  return view ? view->view_id() : FLUTTER_DESKTOP_IMPLICIT_VIEW_ID;
 }
 
 FlutterDesktopTextureRegistrarRef FlutterDesktopRegistrarGetTextureRegistrar(
