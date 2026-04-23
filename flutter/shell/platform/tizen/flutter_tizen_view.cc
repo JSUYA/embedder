@@ -88,11 +88,13 @@ FlutterTizenView::FlutterTizenView(FlutterViewId view_id,
   void* share_context = engine_ptr_->GetImplicitViewShareContext();
   renderer_ = engine_ptr_->CreateRenderer(this, renderer_type, share_context);
 
-  // Channel setup must happen before AddView() because
-  // SetupChannels subscribes to Flutter messages that the engine
-  // may dispatch as part of registering the view.
-  SetupChannels();
-
+  // NOTE: SetupChannels is intentionally NOT called on secondary views.
+  // The engine-level messenger is shared across views, so registering
+  // flutter/window, flutter/platform, flutter/textinput, etc. handlers
+  // here would overwrite the implicit view's handlers (binary messengers
+  // replace on duplicate registration). Platform channels remain anchored
+  // to the implicit view; secondary views participate in pointer/key
+  // routing via view_id on the engine-level FlutterPointerEvent.
   if (auto* window = dynamic_cast<TizenWindow*>(tizen_view_.get())) {
     window->BindKeys(kBindableSystemKeys);
   }
@@ -368,19 +370,31 @@ void FlutterTizenView::OnKey(const char* key,
 }
 
 void FlutterTizenView::OnComposeBegin() {
-  text_input_channel_->OnComposeBegin();
+  // Secondary views do not create a text_input_channel_ because platform
+  // channels are shared across views at the engine level (see ctor).
+  // Gracefully ignore IME events on those views until per-view channel
+  // routing is available.
+  if (text_input_channel_) {
+    text_input_channel_->OnComposeBegin();
+  }
 }
 
 void FlutterTizenView::OnComposeChange(const std::string& str, int cursor_pos) {
-  text_input_channel_->OnComposeChange(str, cursor_pos);
+  if (text_input_channel_) {
+    text_input_channel_->OnComposeChange(str, cursor_pos);
+  }
 }
 
 void FlutterTizenView::OnComposeEnd() {
-  text_input_channel_->OnComposeEnd();
+  if (text_input_channel_) {
+    text_input_channel_->OnComposeEnd();
+  }
 }
 
 void FlutterTizenView::OnCommit(const std::string& str) {
-  text_input_channel_->OnCommit(str);
+  if (text_input_channel_) {
+    text_input_channel_->OnCommit(str);
+  }
 }
 
 void FlutterTizenView::SendInitialGeometry() {

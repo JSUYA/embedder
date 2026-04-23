@@ -5,6 +5,7 @@
 #include "flutter/shell/platform/tizen/channels/multi_view_channel.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -22,13 +23,37 @@ namespace {
 
 constexpr char kChannelName[] = "flutter_tizen/multi_view";
 
-template <typename T>
-T GetOr(const EncodableMap& map, const char* key, T fallback) {
+// Reads an integer field from an EncodableMap. Dart's `int` is encoded as
+// either int32_t or int64_t depending on magnitude, so a naive
+// std::get_if<int32_t> on a value that happens to arrive as int64_t (or
+// vice versa) would silently return the fallback. EncodableValue provides
+// TryGetLongValue() which unifies both variants into int64_t.
+int64_t GetInt(const EncodableMap& map, const char* key, int64_t fallback) {
   auto it = map.find(EncodableValue(key));
   if (it == map.end() || it->second.IsNull()) {
     return fallback;
   }
-  if (auto* v = std::get_if<T>(&it->second)) {
+  auto v = it->second.TryGetLongValue();
+  return v.has_value() ? *v : fallback;
+}
+
+bool GetBool(const EncodableMap& map, const char* key, bool fallback) {
+  auto it = map.find(EncodableValue(key));
+  if (it == map.end() || it->second.IsNull()) {
+    return fallback;
+  }
+  if (auto* v = std::get_if<bool>(&it->second)) {
+    return *v;
+  }
+  return fallback;
+}
+
+double GetDouble(const EncodableMap& map, const char* key, double fallback) {
+  auto it = map.find(EncodableValue(key));
+  if (it == map.end() || it->second.IsNull()) {
+    return fallback;
+  }
+  if (auto* v = std::get_if<double>(&it->second)) {
     return *v;
   }
   return fallback;
@@ -71,14 +96,13 @@ void MultiViewChannel::HandleMethodCall(
   }
 
   if (method == "addView") {
-    const int32_t x = GetOr<int32_t>(*args, "x", 0);
-    const int32_t y = GetOr<int32_t>(*args, "y", 0);
-    const int32_t width = GetOr<int32_t>(*args, "width", 0);
-    const int32_t height = GetOr<int32_t>(*args, "height", 0);
-    const bool transparent = GetOr<bool>(*args, "transparent", false);
-    const bool top_level = GetOr<bool>(*args, "topLevel", false);
-    const double user_pixel_ratio =
-        GetOr<double>(*args, "userPixelRatio", 0.0);
+    const int32_t x = static_cast<int32_t>(GetInt(*args, "x", 0));
+    const int32_t y = static_cast<int32_t>(GetInt(*args, "y", 0));
+    const int32_t width = static_cast<int32_t>(GetInt(*args, "width", 0));
+    const int32_t height = static_cast<int32_t>(GetInt(*args, "height", 0));
+    const bool transparent = GetBool(*args, "transparent", false);
+    const bool top_level = GetBool(*args, "topLevel", false);
+    const double user_pixel_ratio = GetDouble(*args, "userPixelRatio", 0.0);
 
     FlutterDesktopWindowProperties properties = {};
     properties.x = x;
@@ -94,18 +118,18 @@ void MultiViewChannel::HandleMethodCall(
     properties.pointing_device_support = true;
     properties.floating_menu_support = true;
 
-    // Shared ownership of the result so the async callback can outlive the
-    // method call. MethodResult is not copyable, so we wrap it.
-    auto shared_result =
-        std::shared_ptr<MethodResult<EncodableValue>>(std::move(result));
-
+    // The public C API guarantees the callback fires exactly once (even on
+    // early failure paths), so the |holder| can be freed unconditionally in
+    // the trampoline below without leaking or double-freeing.
+    auto* holder = new std::unique_ptr<MethodResult<EncodableValue>>(
+        std::move(result));
     FlutterDesktopEngineRef engine_ref =
         reinterpret_cast<FlutterDesktopEngineRef>(engine_);
-    FlutterDesktopViewRef created = FlutterDesktopEngineAddView(
+    FlutterDesktopEngineAddView(
         engine_ref, properties,
         [](bool added, FlutterDesktopViewId view_id, void* user_data) {
           auto* holder =
-              static_cast<std::shared_ptr<MethodResult<EncodableValue>>*>(
+              static_cast<std::unique_ptr<MethodResult<EncodableValue>>*>(
                   user_data);
           if (added) {
             (*holder)->Success(EncodableValue(static_cast<int64_t>(view_id)));
@@ -115,39 +139,31 @@ void MultiViewChannel::HandleMethodCall(
           }
           delete holder;
         },
-        new std::shared_ptr<MethodResult<EncodableValue>>(shared_result));
-    if (!created) {
-      shared_result->Error("add-view-issue-failed",
-                           "Could not issue FlutterDesktopEngineAddView.");
-    }
+        holder);
     return;
   }
 
   if (method == "removeView") {
-    const int64_t view_id = GetOr<int64_t>(*args, "viewId", -1);
+    const int64_t view_id = GetInt(*args, "viewId", -1);
     if (view_id <= 0) {
       result->Error("bad-args", "viewId must be a positive integer.");
       return;
     }
 
-    auto shared_result =
-        std::shared_ptr<MethodResult<EncodableValue>>(std::move(result));
+    auto* holder = new std::unique_ptr<MethodResult<EncodableValue>>(
+        std::move(result));
     FlutterDesktopEngineRef engine_ref =
         reinterpret_cast<FlutterDesktopEngineRef>(engine_);
-    const bool issued = FlutterDesktopEngineRemoveView(
+    FlutterDesktopEngineRemoveView(
         engine_ref, static_cast<FlutterDesktopViewId>(view_id),
-        [](bool removed, FlutterDesktopViewId view_id, void* user_data) {
+        [](bool removed, FlutterDesktopViewId /*view_id*/, void* user_data) {
           auto* holder =
-              static_cast<std::shared_ptr<MethodResult<EncodableValue>>*>(
+              static_cast<std::unique_ptr<MethodResult<EncodableValue>>*>(
                   user_data);
           (*holder)->Success(EncodableValue(removed));
           delete holder;
         },
-        new std::shared_ptr<MethodResult<EncodableValue>>(shared_result));
-    if (!issued) {
-      shared_result->Error("remove-view-issue-failed",
-                           "Could not issue FlutterDesktopEngineRemoveView.");
-    }
+        holder);
     return;
   }
 

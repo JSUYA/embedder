@@ -33,6 +33,21 @@ std::shared_ptr<TizenEglDisplay> TizenEglDisplay::Acquire(
   std::lock_guard<std::mutex> lock(g_instance_mutex);
 
   if (auto existing = g_instance.lock()) {
+    // The EGLConfig cached on the singleton was chosen based on the first
+    // caller's |enable_impeller| flag. A subsequent caller that expects a
+    // different config (for example, an app that toggles Impeller per view)
+    // would silently receive a mismatched config, producing hard-to-debug
+    // rendering artefacts. Refuse in that case so the caller learns early.
+    if (existing->enable_impeller_ != enable_impeller) {
+      FT_LOG(Error)
+          << "TizenEglDisplay was already created with enable_impeller="
+          << existing->enable_impeller_
+          << " but Acquire() now requested enable_impeller="
+          << enable_impeller
+          << ". Mixing Impeller and Skia EGL configs in one process is not "
+             "supported.";
+      return nullptr;
+    }
     return existing;
   }
 
@@ -55,6 +70,7 @@ TizenEglDisplay::~TizenEglDisplay() {
 }
 
 bool TizenEglDisplay::Init(void* render_target_display, bool enable_impeller) {
+  enable_impeller_ = enable_impeller;
   if (render_target_display) {
     egl_display_ =
         eglGetDisplay(static_cast<wl_display*>(render_target_display));

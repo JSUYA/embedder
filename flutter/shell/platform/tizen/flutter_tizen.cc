@@ -321,12 +321,23 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
     const FlutterDesktopWindowProperties& window_properties,
     FlutterDesktopAddViewCallback callback,
     void* user_data) {
+  // Callers rely on |callback| firing exactly once even on failure paths so
+  // they can release any per-request state (shared_ptr<MethodResult>,
+  // AddViewContext, etc.) without racing against the async success path.
+  // InvokeFailure centralizes that contract.
+  auto InvokeFailure = [&](FlutterDesktopViewId view_id) {
+    if (callback) {
+      callback(/*added=*/false, view_id, user_data);
+    }
+    return static_cast<FlutterDesktopViewRef>(nullptr);
+  };
+
   flutter::FlutterTizenEngine* engine = EngineFromHandle(engine_ref);
   if (!engine || !engine->IsRunning()) {
     FT_LOG(Error)
         << "FlutterDesktopEngineAddView requires a running engine; call "
            "FlutterDesktopViewCreateFromNewWindow first.";
-    return nullptr;
+    return InvokeFailure(FLUTTER_DESKTOP_IMPLICIT_VIEW_ID);
   }
 
   const flutter::FlutterViewId view_id = engine->AllocateViewId();
@@ -350,9 +361,9 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
       view_id, std::move(window), engine, window_properties.renderer_type,
       window_properties.user_pixel_ratio);
 
-  // Forward the async completion callback through engine->AddView. If the
-  // embedder API call itself fails synchronously we release the view here
-  // so the caller does not receive a dangling ref.
+  // Forward the async completion callback through engine->AddView. On
+  // synchronous failure engine->AddView() itself invokes the lambda with
+  // |added=false|, so we must not double-invoke |callback| here.
   auto* raw_view = view.release();
   const bool issued = engine->AddView(
       raw_view,
@@ -362,6 +373,9 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
         }
       });
   if (!issued) {
+    // engine->AddView has already reported failure through our lambda, so
+    // |callback| has already been invoked. Just release the view object
+    // and return.
     delete raw_view;
     return nullptr;
   }
@@ -374,24 +388,34 @@ bool FlutterDesktopEngineRemoveView(FlutterDesktopEngineRef engine_ref,
                                     FlutterDesktopViewId view_id,
                                     FlutterDesktopRemoveViewCallback callback,
                                     void* user_data) {
+  // Same single-callback-invocation contract as FlutterDesktopEngineAddView.
+  auto InvokeFailure = [&]() {
+    if (callback) {
+      callback(/*removed=*/false, view_id, user_data);
+    }
+    return false;
+  };
+
   flutter::FlutterTizenEngine* engine = EngineFromHandle(engine_ref);
   if (!engine) {
-    return false;
+    return InvokeFailure();
   }
   if (view_id == FLUTTER_DESKTOP_IMPLICIT_VIEW_ID) {
     FT_LOG(Error) << "The implicit view cannot be removed via "
                      "FlutterDesktopEngineRemoveView.";
-    return false;
+    return InvokeFailure();
   }
 
   flutter::FlutterTizenView* view = engine->GetView(view_id);
   if (!view) {
-    return false;
+    return InvokeFailure();
   }
 
-  // Destroying the FlutterTizenView invokes engine->RemoveView() on the
-  // secondary view, which forwards to FlutterEngineRemoveView.
-  // The caller's callback is invoked once the engine acknowledges.
+  // Destroying the FlutterTizenView synchronously erases the entry from the
+  // engine's views_ map (see FlutterTizenEngine::RemoveView) and schedules a
+  // FlutterEngineRemoveView for the framework side. The operation completes
+  // asynchronously on the Flutter engine, but from the platform's point of
+  // view the view is already gone, so we report success here.
   delete view;
   if (callback) {
     callback(true, view_id, user_data);

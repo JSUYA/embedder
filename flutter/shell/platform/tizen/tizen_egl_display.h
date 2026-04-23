@@ -47,6 +47,7 @@ class TizenEglDisplay {
   EGLDisplay egl_display() const { return egl_display_; }
   EGLConfig egl_config() const { return egl_config_; }
   const std::string& extensions() const { return extensions_; }
+  bool enable_impeller() const { return enable_impeller_; }
   bool IsValid() const {
     return egl_display_ != EGL_NO_DISPLAY && egl_config_ != nullptr;
   }
@@ -59,6 +60,7 @@ class TizenEglDisplay {
   EGLDisplay egl_display_ = EGL_NO_DISPLAY;
   EGLConfig egl_config_ = nullptr;
   std::string extensions_;
+  bool enable_impeller_ = false;
 };
 
 }  // namespace flutter

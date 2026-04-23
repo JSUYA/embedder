@@ -405,6 +405,14 @@ bool FlutterTizenEngine::AddView(FlutterTizenView* view,
   FlutterEngineResult result = embedder_api_.AddView(engine_, &info);
   if (result != kSuccess) {
     FT_LOG(Error) << "FlutterEngineAddView failed with code " << result;
+    // Preserve the "callback fires exactly once" contract: the C API
+    // guarantees this to its callers, and our own trampoline relies on
+    // it to free its heap-allocated context. Invoke user_callback(false)
+    // here before deleting ctx, otherwise callers are left waiting on a
+    // callback that will never arrive.
+    if (ctx->user_callback) {
+      ctx->user_callback(false);
+    }
     delete ctx;
     {
       std::lock_guard<std::mutex> lock(views_mutex_);
@@ -425,10 +433,22 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
     return false;
   }
 
+  // Erase from views_ synchronously. The FlutterTizenView instance is
+  // typically being destroyed right now (from its own destructor); leaving
+  // the pointer in views_ until the async FlutterEngineRemoveView callback
+  // fired would leave a dangling entry that other callers could dereference
+  // via GetView() / GetAllViews(). If the engine later rejects the remove,
+  // the Flutter framework side is out of sync with the platform side; we
+  // log and move on because the platform view is already gone.
   {
     std::lock_guard<std::mutex> lock(views_mutex_);
-    if (views_.count(view_id) == 0) {
-      FT_LOG(Error) << "Unknown view " << view_id << " in RemoveView.";
+    if (views_.erase(view_id) == 0) {
+      // Not an error: callers may attempt to remove a view that was never
+      // registered (for example, when FlutterTizenView's destructor runs
+      // for a view whose AddView() failed before insertion). Downgraded to
+      // a debug log to avoid noise in the common path.
+      FT_LOG(Debug) << "RemoveView: view " << view_id
+                    << " is not registered; skipping.";
       if (callback) {
         callback(false);
       }
@@ -437,8 +457,6 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   }
 
   if (!engine_) {
-    std::lock_guard<std::mutex> lock(views_mutex_);
-    views_.erase(view_id);
     if (callback) {
       callback(true);
     }
@@ -446,11 +464,10 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   }
 
   struct RemoveViewContext {
-    FlutterTizenEngine* engine;
     FlutterViewId view_id;
     std::function<void(bool)> user_callback;
   };
-  auto* ctx = new RemoveViewContext{this, view_id, std::move(callback)};
+  auto* ctx = new RemoveViewContext{view_id, std::move(callback)};
 
   FlutterRemoveViewInfo info = {};
   info.struct_size = sizeof(FlutterRemoveViewInfo);
@@ -458,10 +475,7 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   info.user_data = ctx;
   info.remove_view_callback = [](const FlutterRemoveViewResult* result) {
     auto* ctx = static_cast<RemoveViewContext*>(result->user_data);
-    if (result->removed) {
-      std::lock_guard<std::mutex> lock(ctx->engine->views_mutex_);
-      ctx->engine->views_.erase(ctx->view_id);
-    }
+    // views_ was already erased synchronously above, so no map touch here.
     if (ctx->user_callback) {
       ctx->user_callback(result->removed);
     }
@@ -471,6 +485,12 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
   FlutterEngineResult result = embedder_api_.RemoveView(engine_, &info);
   if (result != kSuccess) {
     FT_LOG(Error) << "FlutterEngineRemoveView failed with code " << result;
+    // Mirror the AddView contract: always invoke user_callback before
+    // deleting ctx. views_ was already erased synchronously at the top of
+    // this function so our side is consistent regardless.
+    if (ctx->user_callback) {
+      ctx->user_callback(false);
+    }
     delete ctx;
     return false;
   }
