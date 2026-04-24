@@ -285,6 +285,17 @@ void FlutterTizenEngine::UpdateDisplay(
   }
 }
 
+void FlutterTizenEngine::PostPlatformTask(std::function<void()> task) {
+  if (!task) {
+    return;
+  }
+  if (!event_loop_ || event_loop_->RunsTasksOnCurrentThread()) {
+    task();
+    return;
+  }
+  event_loop_->PostTask(std::move(task));
+}
+
 bool FlutterTizenEngine::StopEngine() {
   if (engine_) {
     for (const auto& [callback, registrar] :

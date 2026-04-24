@@ -340,7 +340,7 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
     return InvokeFailure(FLUTTER_DESKTOP_IMPLICIT_VIEW_ID);
   }
 
-  const flutter::FlutterViewId view_id = engine->AllocateViewId();
+  const FlutterViewId view_id = engine->AllocateViewId();
 
   flutter::TizenGeometry window_geometry = {
       window_properties.x, window_properties.y, window_properties.width,
@@ -361,22 +361,25 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
       view_id, std::move(window), engine, window_properties.renderer_type,
       window_properties.user_pixel_ratio);
 
-  // Forward the async completion callback through engine->AddView. On
-  // synchronous failure engine->AddView() itself invokes the lambda with
-  // |added=false|, so we must not double-invoke |callback| here.
+  // Forward the async completion callback through engine->AddView. The embedder
+  // API invokes AddView callbacks on an internal engine thread, so hop back to
+  // the platform thread before touching Tizen objects or MethodResult state.
   auto* raw_view = view.release();
   const bool issued = engine->AddView(
-      raw_view, [callback, view_id, raw_view, user_data](bool added) {
-        if (callback) {
-          callback(added, view_id, user_data);
-        }
-        if (!added) {
-          delete raw_view;
-        }
+      raw_view, [engine, callback, view_id, raw_view, user_data](bool added) {
+        engine->PostPlatformTask(
+            [callback, view_id, raw_view, user_data, added]() {
+              if (callback) {
+                callback(added, view_id, user_data);
+              }
+              if (!added) {
+                delete raw_view;
+              }
+            });
       });
   if (!issued) {
-    // engine->AddView has already reported failure through our lambda, so
-    // |callback| has already been invoked and |raw_view| has been deleted.
+    // engine->AddView has already reported failure through our lambda, so do
+    // not report it again.
     return nullptr;
   }
 
@@ -416,13 +419,16 @@ bool FlutterDesktopEngineRemoveView(FlutterDesktopEngineRef engine_ref,
   // Keep the FlutterTizenView alive until that callback, then delete it.
   return engine->RemoveView(
       view_id,
-      [view, callback, view_id, user_data](bool removed) {
-        if (removed) {
-          delete view;
-        }
-        if (callback) {
-          callback(removed, view_id, user_data);
-        }
+      [engine, view, callback, view_id, user_data](bool removed) {
+        engine->PostPlatformTask(
+            [view, callback, view_id, user_data, removed]() {
+              if (removed) {
+                delete view;
+              }
+              if (callback) {
+                callback(removed, view_id, user_data);
+              }
+            });
       },
       /*restore_on_failure=*/true);
 }

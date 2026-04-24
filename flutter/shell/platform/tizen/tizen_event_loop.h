@@ -15,6 +15,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <vector>
 
 #include "flutter/shell/platform/embedder/embedder.h"
 #include "flutter/shell/platform/tizen/tizen_renderer.h"
@@ -43,6 +44,9 @@ class TizenEventLoop {
   // Post a Flutter engine tasks to the event loop for delayed execution.
   void PostTask(FlutterTask flutter_task, uint64_t flutter_target_time_nanos);
 
+  // Posts a host task to the platform event loop for immediate execution.
+  void PostTask(std::function<void()> task);
+
   virtual void OnTaskExpired() = 0;
 
  protected:
@@ -70,6 +74,8 @@ class TizenEventLoop {
   std::priority_queue<Task, std::deque<Task>, Task::Comparer> task_queue_;
   std::vector<Task> expired_tasks_;
   std::mutex expired_tasks_mutex_;
+  std::deque<std::function<void()>> pending_host_tasks_;
+  std::mutex pending_host_tasks_mutex_;
   std::atomic<std::uint64_t> task_order_ = 0;
 
  private:

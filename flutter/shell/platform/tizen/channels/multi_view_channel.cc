@@ -65,6 +65,12 @@ bool IsInt32(int64_t value) {
          value <= std::numeric_limits<int32_t>::max();
 }
 
+struct MethodResultHolder {
+  MultiViewChannel* channel;
+  std::shared_ptr<std::atomic_bool> channel_alive;
+  std::unique_ptr<MethodResult<EncodableValue>> result;
+};
+
 }  // namespace
 
 MultiViewChannel::MultiViewChannel(BinaryMessenger* messenger,
@@ -80,9 +86,56 @@ MultiViewChannel::MultiViewChannel(BinaryMessenger* messenger,
 }
 
 MultiViewChannel::~MultiViewChannel() {
+  alive_->store(false);
   if (channel_) {
     channel_->SetMethodCallHandler(nullptr);
   }
+  DestroyOwnedViews();
+}
+
+void MultiViewChannel::DestroyOwnedViews() {
+  auto owned_views = std::move(owned_views_);
+  owned_views_.clear();
+  FlutterDesktopEngineRef engine_ref =
+      reinterpret_cast<FlutterDesktopEngineRef>(engine_);
+  for (const auto& [view_id, view] : owned_views) {
+    if (engine_ && engine_->IsRunning()) {
+      FlutterDesktopEngineRemoveView(engine_ref, view_id, nullptr, nullptr);
+    } else {
+      FlutterDesktopViewDestroy(view);
+    }
+  }
+}
+
+void MultiViewChannel::OnAddViewComplete(
+    bool added,
+    FlutterDesktopViewId view_id,
+    std::unique_ptr<MethodResult<EncodableValue>> result) {
+  if (!added) {
+    result->Error("add-view-failed",
+                  "FlutterEngineAddView rejected the new view.");
+    return;
+  }
+  FlutterDesktopEngineRef engine_ref =
+      reinterpret_cast<FlutterDesktopEngineRef>(engine_);
+  FlutterDesktopViewRef view = FlutterDesktopEngineGetView(engine_ref, view_id);
+  if (!view) {
+    result->Error("add-view-failed",
+                  "FlutterEngineAddView completed without a native view.");
+    return;
+  }
+  owned_views_[view_id] = view;
+  result->Success(EncodableValue(static_cast<int64_t>(view_id)));
+}
+
+void MultiViewChannel::OnRemoveViewComplete(
+    bool removed,
+    FlutterDesktopViewId view_id,
+    std::unique_ptr<MethodResult<EncodableValue>> result) {
+  if (removed) {
+    owned_views_.erase(view_id);
+  }
+  result->Success(EncodableValue(removed));
 }
 
 void MultiViewChannel::HandleMethodCall(
@@ -145,46 +198,49 @@ void MultiViewChannel::HandleMethodCall(
     // The public C API guarantees the callback fires exactly once (even on
     // early failure paths), so the |holder| can be freed unconditionally in
     // the trampoline below without leaking or double-freeing.
-    auto* holder =
-        new std::unique_ptr<MethodResult<EncodableValue>>(std::move(result));
+    auto* holder = new MethodResultHolder{this, alive_, std::move(result)};
     FlutterDesktopEngineRef engine_ref =
         reinterpret_cast<FlutterDesktopEngineRef>(engine_);
     FlutterDesktopEngineAddView(
         engine_ref, properties,
         [](bool added, FlutterDesktopViewId view_id, void* user_data) {
-          auto* holder =
-              static_cast<std::unique_ptr<MethodResult<EncodableValue>>*>(
-                  user_data);
-          if (added) {
-            (*holder)->Success(EncodableValue(static_cast<int64_t>(view_id)));
-          } else {
-            (*holder)->Error("add-view-failed",
-                             "FlutterEngineAddView rejected the new view.");
+          std::unique_ptr<MethodResultHolder> holder(
+              static_cast<MethodResultHolder*>(user_data));
+          if (!holder->channel_alive->load()) {
+            return;
           }
-          delete holder;
+          holder->channel->OnAddViewComplete(added, view_id,
+                                             std::move(holder->result));
         },
         holder);
     return;
   }
 
   if (method == "removeView") {
-    const int64_t view_id = GetInt(*args, "viewId", -1);
-    if (view_id <= 0) {
+    const int64_t view_id_value = GetInt(*args, "viewId", -1);
+    if (view_id_value <= 0) {
       result->Error("bad-args", "viewId must be a positive integer.");
       return;
     }
-    auto* holder =
-        new std::unique_ptr<MethodResult<EncodableValue>>(std::move(result));
+    const FlutterDesktopViewId view_id =
+        static_cast<FlutterDesktopViewId>(view_id_value);
+    if (owned_views_.count(view_id) == 0) {
+      result->Success(EncodableValue(false));
+      return;
+    }
+    auto* holder = new MethodResultHolder{this, alive_, std::move(result)};
     FlutterDesktopEngineRef engine_ref =
         reinterpret_cast<FlutterDesktopEngineRef>(engine_);
     FlutterDesktopEngineRemoveView(
-        engine_ref, static_cast<FlutterDesktopViewId>(view_id),
-        [](bool removed, FlutterDesktopViewId /*view_id*/, void* user_data) {
-          auto* holder =
-              static_cast<std::unique_ptr<MethodResult<EncodableValue>>*>(
-                  user_data);
-          (*holder)->Success(EncodableValue(removed));
-          delete holder;
+        engine_ref, view_id,
+        [](bool removed, FlutterDesktopViewId view_id, void* user_data) {
+          std::unique_ptr<MethodResultHolder> holder(
+              static_cast<MethodResultHolder*>(user_data));
+          if (!holder->channel_alive->load()) {
+            return;
+          }
+          holder->channel->OnRemoveViewComplete(removed, view_id,
+                                                std::move(holder->result));
         },
         holder);
     return;

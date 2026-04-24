@@ -242,6 +242,10 @@ class FlutterTizenEngine {
   // Notifies the engine about a display update.
   void UpdateDisplay(const std::vector<FlutterEngineDisplay>& displays);
 
+  // Runs |task| on the platform thread. If already on the platform thread, the
+  // task runs immediately.
+  void PostPlatformTask(std::function<void()> task);
+
  private:
   friend class EngineModifier;
 

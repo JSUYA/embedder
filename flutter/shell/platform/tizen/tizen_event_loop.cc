@@ -34,6 +34,15 @@ bool TizenEventLoop::RunsTasksOnCurrentThread() const {
 }
 
 void TizenEventLoop::ExecuteTaskEvents() {
+  std::deque<std::function<void()>> host_tasks;
+  {
+    std::lock_guard<std::mutex> lock(pending_host_tasks_mutex_);
+    host_tasks.swap(pending_host_tasks_);
+  }
+  for (const auto& task : host_tasks) {
+    task();
+  }
+
   const TaskTimePoint now = TaskTimePoint::clock::now();
   {
     std::lock_guard<std::mutex> lock1(task_queue_mutex_);
@@ -50,6 +59,19 @@ void TizenEventLoop::ExecuteTaskEvents() {
     }
   }
   OnTaskExpired();
+}
+
+void TizenEventLoop::PostTask(std::function<void()> task) {
+  if (!task) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(pending_host_tasks_mutex_);
+    pending_host_tasks_.push_back(std::move(task));
+  }
+  if (ecore_pipe_) {
+    ecore_pipe_write(ecore_pipe_, nullptr, 0);
+  }
 }
 
 TizenEventLoop::TaskTimePoint TizenEventLoop::TimePointFromFlutterTime(
