@@ -420,7 +420,15 @@ void FlutterTizenView::SendWindowMetrics(int32_t left,
     }
   }
 
-  engine()->SendWindowMetrics(view_id_, left, top, width, height, pixel_ratio);
+  // Secondary views render into their own native surfaces. The platform window
+  // position is handled by Tizen, while Flutter's surface-local coordinate
+  // system should start at (0, 0) for that view.
+  if (view_id_ == kImplicitViewId) {
+    engine()->SendWindowMetrics(view_id_, left, top, width, height,
+                                pixel_ratio);
+  } else {
+    engine()->SendWindowMetrics(view_id_, 0, 0, width, height, pixel_ratio);
+  }
 }
 
 void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,

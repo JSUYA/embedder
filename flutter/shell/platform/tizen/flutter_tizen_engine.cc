@@ -405,8 +405,10 @@ bool FlutterTizenEngine::AddView(FlutterTizenView* view,
   TizenGeometry geometry = view->tizen_view()->GetGeometry();
   FlutterWindowMetricsEvent metrics = {};
   metrics.struct_size = sizeof(FlutterWindowMetricsEvent);
-  metrics.left = static_cast<size_t>(geometry.left);
-  metrics.top = static_cast<size_t>(geometry.top);
+  // The native window manager owns secondary-view placement. Flutter should
+  // receive surface-local coordinates for the view it is about to render.
+  metrics.left = 0;
+  metrics.top = 0;
   metrics.width = static_cast<size_t>(geometry.width);
   metrics.height = static_cast<size_t>(geometry.height);
   metrics.pixel_ratio = ComputePixelRatio(view->tizen_view()->GetDpi());
