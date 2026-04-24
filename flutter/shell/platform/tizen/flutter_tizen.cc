@@ -384,6 +384,10 @@ FlutterDesktopViewRef FlutterDesktopEngineAddView(
   }
 
   raw_view->SendInitialGeometry();
+  if (auto* window =
+          dynamic_cast<flutter::TizenWindow*>(raw_view->tizen_view())) {
+    window->RaiseWindow();
+  }
   return HandleForView(raw_view);
 }
 
