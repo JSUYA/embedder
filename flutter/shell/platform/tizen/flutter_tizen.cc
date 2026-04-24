@@ -421,16 +421,18 @@ bool FlutterDesktopEngineRemoveView(FlutterDesktopEngineRef engine_ref,
       view_id,
       [engine, view, callback, view_id, user_data](bool removed) {
         engine->PostPlatformTask(
-            [view, callback, view_id, user_data, removed]() {
-              if (removed) {
-                delete view;
-              }
+            [engine, view, callback, view_id, user_data, removed]() {
               if (callback) {
                 callback(removed, view_id, user_data);
               }
+              if (removed) {
+                engine->ReleaseRemovedView(view_id);
+                delete view;
+              }
             });
       },
-      /*restore_on_failure=*/true);
+      /*restore_on_failure=*/true,
+      /*retain_renderable_until_release=*/true);
 }
 
 FlutterDesktopViewRef FlutterDesktopEngineGetView(

@@ -290,10 +290,9 @@ FLUTTER_EXPORT bool FlutterDesktopViewIsFocused(FlutterDesktopViewRef view);
 // Returns nullptr if the engine is not running or the platform window could
 // not be created; in that case |callback| is invoked with |added| false.
 //
-// NOTE: Until the multi-view compositor work lands, secondary views are
-// registered with the Flutter framework (so PlatformDispatcher.views sees
-// them) but their contents are not rendered. Rendering secondary views
-// requires a FlutterCompositor that routes layers by view id.
+// Secondary view contents are rendered by the Tizen embedder's
+// FlutterCompositor path, which routes each view's layers to the matching
+// native Tizen window by |view_id|.
 FLUTTER_EXPORT FlutterDesktopViewRef FlutterDesktopEngineAddView(
     FlutterDesktopEngineRef engine,
     const FlutterDesktopWindowProperties& window_properties,

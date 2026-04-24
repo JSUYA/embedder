@@ -107,10 +107,18 @@ class FlutterTizenEngine {
   // view cannot be removed while the engine is running and this call will
   // fail for kImplicitViewId. |callback| is invoked once the engine has
   // acknowledged the removal. If |restore_on_failure| is true, a failed
-  // asynchronous removal restores the local registry entry.
+  // asynchronous removal restores the local registry entry. If
+  // |retain_renderable_until_release| is true, the render-only reference is
+  // kept after a successful engine acknowledgement until ReleaseRemovedView()
+  // is called by the owner that will destroy the platform view.
   bool RemoveView(FlutterViewId view_id,
                   std::function<void(bool /*removed*/)> callback = {},
-                  bool restore_on_failure = false);
+                  bool restore_on_failure = false,
+                  bool retain_renderable_until_release = false);
+
+  // Releases the render-only reference for a view that has already been
+  // acknowledged as removed by FlutterEngineRemoveView.
+  void ReleaseRemovedView(FlutterViewId view_id);
 
   // Returns the next available view ID for a secondary view. IDs are
   // monotonically increasing and not reused during the engine lifetime.
@@ -249,10 +257,20 @@ class FlutterTizenEngine {
  private:
   friend class EngineModifier;
 
+  struct BackingStoreContext {
+    FlutterTizenEngine* engine = nullptr;
+    FlutterViewId view_id = kImplicitViewId;
+  };
+
   // Whether the engine is running in headed or headless mode.
   // Headed is defined as having at least one registered view. Headless
   // service apps never call AddView().
   bool IsHeaded();
+
+  // Returns a view that can still receive in-flight compositor callbacks.
+  // Pending-removal views are intentionally hidden from public GetView() but
+  // must remain renderable until FlutterEngineRemoveView is acknowledged.
+  FlutterTizenView* GetRenderableView(FlutterViewId view_id);
 
   // Converts a FlutterPlatformMessage to an equivalent FlutterDesktopMessage.
   FlutterDesktopMessage ConvertToDesktopMessage(
@@ -264,6 +282,26 @@ class FlutterTizenEngine {
   // FlutterTizenEngine.
   FlutterRendererConfig GetRendererConfig();
 
+  FlutterCompositor GetCompositorConfig();
+
+  bool MakeViewCurrent(FlutterViewId view_id);
+  bool ClearViewCurrent(FlutterViewId view_id);
+  bool PresentView(FlutterViewId view_id);
+
+  static bool CompositorCreateBackingStore(
+      const FlutterBackingStoreConfig* config,
+      FlutterBackingStore* backing_store_out,
+      void* user_data);
+  static bool CompositorCollectBackingStore(
+      const FlutterBackingStore* backing_store,
+      void* user_data);
+  static bool CompositorPresentView(const FlutterPresentViewInfo* info);
+  static bool BackingStoreMakeCurrent(void* user_data,
+                                      bool* opengl_state_changed);
+  static bool BackingStoreClearCurrent(void* user_data,
+                                       bool* opengl_state_changed);
+  static void BackingStoreDestructionCallback(void* user_data);
+
   // Called when semantics nodes updates are received from the engine.
   void OnUpdateSemantics(const FlutterSemanticsUpdate2* update);
 
@@ -272,6 +310,10 @@ class FlutterTizenEngine {
 
   // The proc table of the embedder APIs.
   FlutterEngineProcTable embedder_api_ = {};
+
+  // Compositor config retained for the engine lifetime. FlutterProjectArgs
+  // stores a pointer to this object.
+  FlutterCompositor compositor_ = {};
 
   // The data required for configuring a Flutter engine instance.
   std::unique_ptr<FlutterProjectBundle> project_;
@@ -284,6 +326,7 @@ class FlutterTizenEngine {
   // primary view owns the engine via std::unique_ptr, and secondary views
   // are owned by the app layer that created them).
   std::unordered_map<FlutterViewId, FlutterTizenView*> views_;
+  std::unordered_map<FlutterViewId, FlutterTizenView*> removing_views_;
   mutable std::mutex views_mutex_;
   FlutterViewId next_view_id_ = kImplicitViewId + 1;
 
