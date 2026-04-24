@@ -156,11 +156,23 @@ void FlutterTizenView::SetupChannels() {
       messenger, tizen_view_->input_method_context());
 }
 
+bool FlutterTizenView::SetGeometry(TizenGeometry geometry) {
+  TizenGeometry current = tizen_view_->GetGeometry();
+  if (!tizen_view_->SetGeometry(geometry)) {
+    return false;
+  }
+
+  if (current.width != geometry.width || current.height != geometry.height) {
+    OnResize(geometry.left, geometry.top, geometry.width, geometry.height);
+  }
+  return true;
+}
+
 void FlutterTizenView::Resize(int32_t width, int32_t height) {
   TizenGeometry geometry = tizen_view_->GetGeometry();
   geometry.width = width;
   geometry.height = height;
-  tizen_view_->SetGeometry(geometry);
+  SetGeometry(geometry);
 }
 
 void FlutterTizenView::OnResize(int32_t left,

@@ -246,6 +246,55 @@ void MultiViewChannel::HandleMethodCall(
     return;
   }
 
+  if (method == "updateView") {
+    const int64_t view_id_value = GetInt(*args, "viewId", -1);
+    if (view_id_value <= 0) {
+      result->Error("bad-args", "viewId must be a positive integer.");
+      return;
+    }
+    const FlutterDesktopViewId view_id =
+        static_cast<FlutterDesktopViewId>(view_id_value);
+    if (owned_views_.count(view_id) == 0) {
+      result->Success(EncodableValue(false));
+      return;
+    }
+
+    FlutterTizenView* view = engine_->GetView(view_id);
+    if (!view) {
+      result->Success(EncodableValue(false));
+      return;
+    }
+
+    TizenGeometry geometry = view->tizen_view()->GetGeometry();
+    const int64_t x_value = GetInt(*args, "x", geometry.left);
+    const int64_t y_value = GetInt(*args, "y", geometry.top);
+    const int64_t width_value = GetInt(*args, "width", geometry.width);
+    const int64_t height_value = GetInt(*args, "height", geometry.height);
+    if (!IsInt32(x_value) || !IsInt32(y_value) || !IsInt32(width_value) ||
+        !IsInt32(height_value)) {
+      result->Error("bad-args",
+                    "x, y, width and height must fit in a 32-bit integer.");
+      return;
+    }
+    if (width_value < 0 || height_value < 0) {
+      result->Error("bad-args", "width and height must be non-negative.");
+      return;
+    }
+
+    geometry.left = static_cast<int32_t>(x_value);
+    geometry.top = static_cast<int32_t>(y_value);
+    geometry.width = static_cast<int32_t>(width_value);
+    geometry.height = static_cast<int32_t>(height_value);
+    const bool updated = view->SetGeometry(geometry);
+    if (updated) {
+      if (auto* window = dynamic_cast<TizenWindow*>(view->tizen_view())) {
+        window->RaiseWindow();
+      }
+    }
+    result->Success(EncodableValue(updated));
+    return;
+  }
+
   result->NotImplemented();
 }
 

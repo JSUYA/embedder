@@ -72,6 +72,8 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
   // GLES contexts in the share group rooted at the implicit view.
   TizenRenderer* renderer() { return renderer_.get(); }
 
+  bool SetGeometry(TizenGeometry geometry);
+
   void Resize(int32_t width, int32_t height);
 
   void OnResize(int32_t left,

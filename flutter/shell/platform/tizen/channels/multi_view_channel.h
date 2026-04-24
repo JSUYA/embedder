@@ -26,6 +26,7 @@ class FlutterTizenEngine;
 // Method contract:
 //   addView({int x, int y, int width, int height, bool transparent,
 //            bool topLevel, double userPixelRatio}) -> int (view id)
+//   updateView({int viewId, int x, int y, int width, int height}) -> bool
 //   removeView({int viewId}) -> bool
 //
 // The channel is registered on the engine-level messenger so a single
@@ -42,10 +43,9 @@ class MultiViewChannel {
   void HandleMethodCall(const MethodCall<EncodableValue>& method_call,
                         std::unique_ptr<MethodResult<EncodableValue>> result);
 
-  void OnAddViewComplete(
-      bool added,
-      FlutterDesktopViewId view_id,
-      std::unique_ptr<MethodResult<EncodableValue>> result);
+  void OnAddViewComplete(bool added,
+                         FlutterDesktopViewId view_id,
+                         std::unique_ptr<MethodResult<EncodableValue>> result);
   void OnRemoveViewComplete(
       bool removed,
       FlutterDesktopViewId view_id,
