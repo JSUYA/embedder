@@ -53,6 +53,45 @@ FlutterPointerDeviceKind ToFlutterDeviceKind(const Ecore_Device* dev) {
   }
 }
 
+TizenWindowEcoreWl2* g_captured_pointer_window = nullptr;
+int32_t g_captured_pointer_device = 0;
+
+TizenWindowEcoreWl2* GetCapturedPointerWindow(int32_t device_id) {
+  return g_captured_pointer_window && g_captured_pointer_device == device_id
+             ? g_captured_pointer_window
+             : nullptr;
+}
+
+void CapturePointer(TizenWindowEcoreWl2* window, int32_t device_id) {
+  g_captured_pointer_window = window;
+  g_captured_pointer_device = device_id;
+}
+
+void ReleasePointerCapture(TizenWindowEcoreWl2* window, int32_t device_id) {
+  if (g_captured_pointer_window == window &&
+      g_captured_pointer_device == device_id) {
+    g_captured_pointer_window = nullptr;
+    g_captured_pointer_device = 0;
+  }
+}
+
+void ReleasePointerCaptureForWindow(TizenWindowEcoreWl2* window) {
+  if (g_captured_pointer_window == window) {
+    g_captured_pointer_window = nullptr;
+    g_captured_pointer_device = 0;
+  }
+}
+
+void RootToWindow(TizenWindowEcoreWl2* window,
+                  int32_t root_x,
+                  int32_t root_y,
+                  double* x,
+                  double* y) {
+  TizenGeometry geometry = window->GetGeometry();
+  *x = root_x - geometry.left;
+  *y = root_y - geometry.top;
+}
+
 #ifdef TV_PROFILE
 time_t GetBootTimeEpoch() {
   struct timespec now, boot_time;
@@ -170,6 +209,7 @@ TizenWindowEcoreWl2::TizenWindowEcoreWl2(TizenGeometry geometry,
 }  // namespace flutter
 
 TizenWindowEcoreWl2::~TizenWindowEcoreWl2() {
+  ReleasePointerCaptureForWindow(this);
   UnregisterEventHandlers();
   DestroyWindow();
 }
@@ -477,10 +517,15 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
         }
 #endif
 
+        auto* button_event = reinterpret_cast<Ecore_Event_Mouse_Button*>(event);
         if (self->view_delegate_) {
-          auto* button_event =
-              reinterpret_cast<Ecore_Event_Mouse_Button*>(event);
+          TizenWindowEcoreWl2* captured =
+              GetCapturedPointerWindow(button_event->multi.device);
+          if (captured && captured != self) {
+            return ECORE_CALLBACK_PASS_ON;
+          }
           if (button_event->window == self->GetWindowId()) {
+            CapturePointer(self, button_event->multi.device);
             self->view_delegate_->OnPointerDown(
                 button_event->x, button_event->y,
                 ToFlutterPointerButton(button_event->buttons),
@@ -497,9 +542,25 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
       ECORE_EVENT_MOUSE_BUTTON_UP,
       [](void* data, int type, void* event) -> Eina_Bool {
         auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+        auto* button_event = reinterpret_cast<Ecore_Event_Mouse_Button*>(event);
         if (self->view_delegate_) {
-          auto* button_event =
-              reinterpret_cast<Ecore_Event_Mouse_Button*>(event);
+          TizenWindowEcoreWl2* captured =
+              GetCapturedPointerWindow(button_event->multi.device);
+          if (captured) {
+            if (captured != self) {
+              return ECORE_CALLBACK_PASS_ON;
+            }
+            double x = 0;
+            double y = 0;
+            RootToWindow(self, button_event->root.x, button_event->root.y, &x,
+                         &y);
+            self->view_delegate_->OnPointerUp(
+                x, y, ToFlutterPointerButton(button_event->buttons),
+                button_event->timestamp, ToFlutterDeviceKind(button_event->dev),
+                button_event->multi.device);
+            ReleasePointerCapture(self, button_event->multi.device);
+            return ECORE_CALLBACK_DONE;
+          }
           if (button_event->window == self->GetWindowId()) {
             self->view_delegate_->OnPointerUp(
                 button_event->x, button_event->y,
@@ -517,8 +578,22 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
       ECORE_EVENT_MOUSE_MOVE,
       [](void* data, int type, void* event) -> Eina_Bool {
         auto* self = static_cast<TizenWindowEcoreWl2*>(data);
+        auto* move_event = reinterpret_cast<Ecore_Event_Mouse_Move*>(event);
         if (self->view_delegate_) {
-          auto* move_event = reinterpret_cast<Ecore_Event_Mouse_Move*>(event);
+          TizenWindowEcoreWl2* captured =
+              GetCapturedPointerWindow(move_event->multi.device);
+          if (captured) {
+            if (captured != self) {
+              return ECORE_CALLBACK_PASS_ON;
+            }
+            double x = 0;
+            double y = 0;
+            RootToWindow(self, move_event->root.x, move_event->root.y, &x, &y);
+            self->view_delegate_->OnPointerMove(
+                x, y, move_event->timestamp,
+                ToFlutterDeviceKind(move_event->dev), move_event->multi.device);
+            return ECORE_CALLBACK_DONE;
+          }
           if (move_event->window == self->GetWindowId()) {
             self->view_delegate_->OnPointerMove(
                 move_event->x, move_event->y, move_event->timestamp,
