@@ -326,6 +326,14 @@ bool FlutterTizenEngine::StopEngine() {
     }
 
     FlutterEngineResult result = embedder_api_.Shutdown(engine_);
+    // RemoveView acknowledgements can arrive while Shutdown is joining engine
+    // threads. Run queued host callbacks here while the engine object is still
+    // intact; then finish any acknowledged native view destruction that was not
+    // reached by a platform task.
+    if (event_loop_) {
+      event_loop_->ExecutePendingHostTasks();
+    }
+    DestroyPendingRemovedViews();
     {
       // Flutter engine's Shutdown releases its own view registrations.
       // Clear our bookkeeping so that any later calls do not dereference
@@ -517,9 +525,12 @@ bool FlutterTizenEngine::RemoveView(FlutterViewId view_id,
     bool retain_renderable_until_release;
     std::function<void(bool)> user_callback;
   };
-  auto* ctx = new RemoveViewContext{
-      this, view_id, removed_view, restore_on_failure,
-      retain_renderable_until_release, std::move(callback)};
+  auto* ctx = new RemoveViewContext{this,
+                                    view_id,
+                                    removed_view,
+                                    restore_on_failure,
+                                    retain_renderable_until_release,
+                                    std::move(callback)};
 
   FlutterRemoveViewInfo info = {};
   info.struct_size = sizeof(FlutterRemoveViewInfo);
@@ -575,6 +586,45 @@ void FlutterTizenEngine::ReleaseRemovedView(FlutterViewId view_id) {
   removing_views_.erase(view_id);
 }
 
+void FlutterTizenEngine::ScheduleRemovedViewDestruction(
+    FlutterViewId view_id,
+    FlutterTizenView* view) {
+  if (view_id == kImplicitViewId || !view) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(pending_removed_view_destructions_mutex_);
+  pending_removed_view_destructions_[view_id] = view;
+}
+
+void FlutterTizenEngine::DestroyPendingRemovedView(FlutterViewId view_id) {
+  FlutterTizenView* view = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(pending_removed_view_destructions_mutex_);
+    auto it = pending_removed_view_destructions_.find(view_id);
+    if (it == pending_removed_view_destructions_.end()) {
+      return;
+    }
+    view = it->second;
+    pending_removed_view_destructions_.erase(it);
+  }
+
+  ReleaseRemovedView(view_id);
+  delete view;
+}
+
+void FlutterTizenEngine::DestroyPendingRemovedViews() {
+  std::unordered_map<FlutterViewId, FlutterTizenView*> views;
+  {
+    std::lock_guard<std::mutex> lock(pending_removed_view_destructions_mutex_);
+    views.swap(pending_removed_view_destructions_);
+  }
+
+  for (const auto& [view_id, view] : views) {
+    ReleaseRemovedView(view_id);
+    delete view;
+  }
+}
+
 FlutterViewId FlutterTizenEngine::AllocateViewId() {
   std::lock_guard<std::mutex> lock(views_mutex_);
   return next_view_id_++;
@@ -586,8 +636,7 @@ FlutterTizenView* FlutterTizenEngine::GetView(FlutterViewId view_id) {
   return it == views_.end() ? nullptr : it->second;
 }
 
-FlutterTizenView* FlutterTizenEngine::GetRenderableView(
-    FlutterViewId view_id) {
+FlutterTizenView* FlutterTizenEngine::GetRenderableView(FlutterViewId view_id) {
   std::lock_guard<std::mutex> lock(views_mutex_);
   auto it = views_.find(view_id);
   if (it != views_.end()) {
@@ -871,8 +920,7 @@ bool FlutterTizenEngine::CompositorCreateBackingStore(
   backing_store_out->user_data = context;
   backing_store_out->type = kFlutterBackingStoreTypeOpenGL;
   backing_store_out->open_gl.type = kFlutterOpenGLTargetTypeSurface;
-  backing_store_out->open_gl.surface.struct_size =
-      sizeof(FlutterOpenGLSurface);
+  backing_store_out->open_gl.surface.struct_size = sizeof(FlutterOpenGLSurface);
   backing_store_out->open_gl.surface.user_data = context;
   backing_store_out->open_gl.surface.make_current_callback =
       BackingStoreMakeCurrent;
@@ -906,9 +954,8 @@ bool FlutterTizenEngine::CompositorPresentView(
   return engine->PresentView(info->view_id);
 }
 
-bool FlutterTizenEngine::BackingStoreMakeCurrent(
-    void* user_data,
-    bool* opengl_state_changed) {
+bool FlutterTizenEngine::BackingStoreMakeCurrent(void* user_data,
+                                                 bool* opengl_state_changed) {
   if (opengl_state_changed) {
     *opengl_state_changed = true;
   }
@@ -917,9 +964,8 @@ bool FlutterTizenEngine::BackingStoreMakeCurrent(
          context->engine->MakeViewCurrent(context->view_id);
 }
 
-bool FlutterTizenEngine::BackingStoreClearCurrent(
-    void* user_data,
-    bool* opengl_state_changed) {
+bool FlutterTizenEngine::BackingStoreClearCurrent(void* user_data,
+                                                  bool* opengl_state_changed) {
   if (opengl_state_changed) {
     *opengl_state_changed = true;
   }

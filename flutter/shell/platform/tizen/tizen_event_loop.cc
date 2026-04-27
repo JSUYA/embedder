@@ -33,7 +33,7 @@ bool TizenEventLoop::RunsTasksOnCurrentThread() const {
   return std::this_thread::get_id() == main_thread_id_;
 }
 
-void TizenEventLoop::ExecuteTaskEvents() {
+void TizenEventLoop::ExecutePendingHostTasks() {
   std::deque<std::function<void()>> host_tasks;
   {
     std::lock_guard<std::mutex> lock(pending_host_tasks_mutex_);
@@ -42,7 +42,10 @@ void TizenEventLoop::ExecuteTaskEvents() {
   for (const auto& task : host_tasks) {
     task();
   }
+}
 
+void TizenEventLoop::ExecuteTaskEvents() {
+  ExecutePendingHostTasks();
   const TaskTimePoint now = TaskTimePoint::clock::now();
   {
     std::lock_guard<std::mutex> lock1(task_queue_mutex_);

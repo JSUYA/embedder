@@ -41,6 +41,9 @@ class TizenEventLoop {
 
   void ExecuteTaskEvents();
 
+  // Runs pending host tasks without processing delayed Flutter engine tasks.
+  void ExecutePendingHostTasks();
+
   // Post a Flutter engine tasks to the event loop for delayed execution.
   void PostTask(FlutterTask flutter_task, uint64_t flutter_target_time_nanos);
 

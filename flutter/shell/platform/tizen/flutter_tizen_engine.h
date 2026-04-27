@@ -120,6 +120,19 @@ class FlutterTizenEngine {
   // acknowledged as removed by FlutterEngineRemoveView.
   void ReleaseRemovedView(FlutterViewId view_id);
 
+  // Tracks a removed view that has been acknowledged by the engine and is
+  // waiting to be destroyed on the platform thread.
+  void ScheduleRemovedViewDestruction(FlutterViewId view_id,
+                                      FlutterTizenView* view);
+
+  // Destroys an acknowledged removed view that was scheduled by
+  // ScheduleRemovedViewDestruction().
+  void DestroyPendingRemovedView(FlutterViewId view_id);
+
+  // Destroys all acknowledged removed views still waiting for their platform
+  // task. Used during shutdown, when the event loop may not pump again.
+  void DestroyPendingRemovedViews();
+
   // Returns the next available view ID for a secondary view. IDs are
   // monotonically increasing and not reused during the engine lifetime.
   FlutterViewId AllocateViewId();
@@ -329,6 +342,10 @@ class FlutterTizenEngine {
   std::unordered_map<FlutterViewId, FlutterTizenView*> removing_views_;
   mutable std::mutex views_mutex_;
   FlutterViewId next_view_id_ = kImplicitViewId + 1;
+
+  std::unordered_map<FlutterViewId, FlutterTizenView*>
+      pending_removed_view_destructions_;
+  std::mutex pending_removed_view_destructions_mutex_;
 
   // The plugin messenger handle given to API clients.
   std::unique_ptr<FlutterDesktopMessenger> messenger_;
