@@ -4,8 +4,8 @@
 
 #include "flutter/shell/platform/tizen/tizen_egl_display.h"
 
-#include <wayland-client.h>
 #include <tbm_dummy_display.h>
+#include <wayland-client.h>
 
 #include <cstdlib>
 
@@ -42,8 +42,7 @@ std::shared_ptr<TizenEglDisplay> TizenEglDisplay::Acquire(
       FT_LOG(Error)
           << "TizenEglDisplay was already created with enable_impeller="
           << existing->enable_impeller_
-          << " but Acquire() now requested enable_impeller="
-          << enable_impeller
+          << " but Acquire() now requested enable_impeller=" << enable_impeller
           << ". Mixing Impeller and Skia EGL configs in one process is not "
              "supported.";
       return nullptr;
@@ -66,6 +65,11 @@ TizenEglDisplay::~TizenEglDisplay() {
     eglTerminate(egl_display_);
     egl_display_ = EGL_NO_DISPLAY;
   }
+  if (tbm_dummy_display_) {
+    tbm_dummy_display_destroy(
+        static_cast<tbm_dummy_display*>(tbm_dummy_display_));
+    tbm_dummy_display_ = nullptr;
+  }
   egl_config_ = nullptr;
 }
 
@@ -75,7 +79,13 @@ bool TizenEglDisplay::Init(void* render_target_display, bool enable_impeller) {
     egl_display_ =
         eglGetDisplay(static_cast<wl_display*>(render_target_display));
   } else {
-    egl_display_ = eglGetDisplay(tbm_dummy_display_create());
+    tbm_dummy_display_ = tbm_dummy_display_create();
+    if (!tbm_dummy_display_) {
+      FT_LOG(Error) << "Could not create a TBM dummy display.";
+      return false;
+    }
+    egl_display_ =
+        eglGetDisplay(static_cast<tbm_dummy_display*>(tbm_dummy_display_));
   }
 
   if (egl_display_ == EGL_NO_DISPLAY) {

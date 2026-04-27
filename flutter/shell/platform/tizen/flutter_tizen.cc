@@ -190,6 +190,16 @@ void FlutterDesktopEngineNotifyAppIsDetached(FlutterDesktopEngineRef engine) {
 
 void FlutterDesktopViewDestroy(FlutterDesktopViewRef view_ref) {
   flutter::FlutterTizenView* view = ViewFromHandle(view_ref);
+  if (!view) {
+    return;
+  }
+  if (view->view_id() != FLUTTER_DESKTOP_IMPLICIT_VIEW_ID && view->engine() &&
+      view->engine()->IsRunning()) {
+    FlutterDesktopEngineRemoveView(
+        reinterpret_cast<FlutterDesktopEngineRef>(view->engine()),
+        view->view_id(), nullptr, nullptr);
+    return;
+  }
   delete view;
 }
 
@@ -451,7 +461,7 @@ FlutterDesktopViewRef FlutterDesktopEngineGetView(
 
 FlutterDesktopViewId FlutterDesktopViewGetId(FlutterDesktopViewRef view_ref) {
   flutter::FlutterTizenView* view = ViewFromHandle(view_ref);
-  return view ? view->view_id() : FLUTTER_DESKTOP_IMPLICIT_VIEW_ID;
+  return view ? view->view_id() : FLUTTER_DESKTOP_INVALID_VIEW_ID;
 }
 
 FlutterDesktopTextureRegistrarRef FlutterDesktopRegistrarGetTextureRegistrar(

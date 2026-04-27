@@ -58,6 +58,7 @@ class TizenEglDisplay {
   bool ChooseConfig(bool enable_impeller);
 
   EGLDisplay egl_display_ = EGL_NO_DISPLAY;
+  void* tbm_dummy_display_ = nullptr;
   EGLConfig egl_config_ = nullptr;
   std::string extensions_;
   bool enable_impeller_ = false;

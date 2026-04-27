@@ -33,6 +33,9 @@ typedef int64_t FlutterDesktopViewId;
 // the FlutterEngine convention: view id 0 is the implicit view.
 #define FLUTTER_DESKTOP_IMPLICIT_VIEW_ID ((FlutterDesktopViewId)0)
 
+// Returned by APIs that need to report a null view reference.
+#define FLUTTER_DESKTOP_INVALID_VIEW_ID ((FlutterDesktopViewId) - 1)
+
 // Callback invoked when an asynchronous AddView operation completes.
 //
 // |added| is true when the Flutter engine has accepted the new view and
@@ -226,9 +229,14 @@ FLUTTER_EXPORT FlutterDesktopViewRef FlutterDesktopViewCreateFromImageView(
     void* native_image_queue,
     int32_t default_window_id);
 
-// Destroys the view.
+// Destroys the implicit view. Secondary views returned by
+// FlutterDesktopEngineAddView must be removed through
+// FlutterDesktopEngineRemoveView; if passed here, they are routed through that
+// removal path so the engine can acknowledge removal before the native surface
+// is released.
 //
-// The engine owned by the view will also be shut down implicitly.
+// For the implicit view, the engine owned by the view will also be shut down
+// implicitly.
 // @warning This API is a work-in-progress and may change.
 FLUTTER_EXPORT void FlutterDesktopViewDestroy(FlutterDesktopViewRef view);
 
@@ -320,8 +328,8 @@ FLUTTER_EXPORT FlutterDesktopViewRef
 FlutterDesktopEngineGetView(FlutterDesktopEngineRef engine,
                             FlutterDesktopViewId view_id);
 
-// Returns the id of |view|, or FLUTTER_DESKTOP_IMPLICIT_VIEW_ID if |view| is
-// the implicit view.
+// Returns the id of |view|, or FLUTTER_DESKTOP_INVALID_VIEW_ID if |view| is
+// null.
 FLUTTER_EXPORT FlutterDesktopViewId
 FlutterDesktopViewGetId(FlutterDesktopViewRef view);
 
