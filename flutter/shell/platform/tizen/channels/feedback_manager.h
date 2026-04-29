@@ -26,11 +26,19 @@ class FeedbackManager {
   void Vibrate() { Play(FEEDBACK_TYPE_VIBRATION, FEEDBACK_PATTERN_SIP); }
 
  private:
+  using FeedbackInitializeFn = int (*)();
+  using FeedbackDeinitializeFn = int (*)();
+  using FeedbackPlayTypeFn = int (*)(feedback_type_e, feedback_pattern_e);
+
   explicit FeedbackManager();
   ~FeedbackManager();
 
   void Play(feedback_type_e type, feedback_pattern_e pattern);
 
+  void* library_ = nullptr;
+  FeedbackInitializeFn feedback_initialize_ = nullptr;
+  FeedbackDeinitializeFn feedback_deinitialize_ = nullptr;
+  FeedbackPlayTypeFn feedback_play_type_ = nullptr;
   bool initialized_ = false;
 };
 
