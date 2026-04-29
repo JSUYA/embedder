@@ -231,8 +231,9 @@ bool FlutterTizenEngine::RunEngine() {
 
   internal_plugin_registrar_ =
       std::make_unique<PluginRegistrar>(plugin_registrar_.get());
-  accessibility_channel_ = std::make_unique<AccessibilityChannel>(
-      internal_plugin_registrar_->messenger());
+  // accessibility_channel_ is constructed lazily by SetSemanticsEnabled(true);
+  // its constructor opens GDBus session/A11Y bus connections that are unused
+  // until a screen reader is active.
   app_control_channel_ = std::make_unique<AppControlChannel>(
       internal_plugin_registrar_->messenger());
   lifecycle_channel_ = std::make_unique<LifecycleChannel>(
@@ -460,6 +461,15 @@ void FlutterTizenEngine::SetSemanticsEnabled(bool enabled) {
     accessibility_bridge_.reset();
   } else if (enabled && !accessibility_bridge_) {
     accessibility_bridge_ = std::make_shared<AccessibilityBridgeTizen>(this);
+  }
+
+  // The accessibility channel owns GDBus session/A11Y bus connections that
+  // are only useful while a screen reader is active. Match the bridge's
+  // lifetime so engines that never enable accessibility do not pay for the
+  // DBus plumbing.
+  if (enabled && !accessibility_channel_) {
+    accessibility_channel_ = std::make_unique<AccessibilityChannel>(
+        internal_plugin_registrar_->messenger());
   }
 
   FlutterPlatformAppDelegateTizen::GetInstance().SetAccessibilityStatus(
