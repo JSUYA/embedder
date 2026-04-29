@@ -45,6 +45,20 @@ config("relative_client_wrapper_headers") {
   include_dirs = [ "//flutter/shell/platform/common/client_wrapper/include" ]
 }
 
+# Hide every symbol that is not explicitly tagged with FLUTTER_EXPORT (resolves
+# to __attribute__((visibility("default"))) on Linux). The embedder ABI only
+# consists of the FlutterDesktop* C functions declared in
+# flutter/shell/platform/{common,tizen}/public/*.h, so internal C++ classes,
+# template instantiations, and helper functions can stay private. This
+# shrinks the dynamic symbol table (.dynsym/.dynstr) and the GOT/PLT, which
+# are mapped into every process that loads the embedder.
+config("flutter_tizen_hidden_visibility") {
+  cflags = [
+    "-fvisibility=hidden",
+    "-fvisibility-inlines-hidden",
+  ]
+}
+
 source_set("dart_api_dl") {
   sources = [
     "//third_party/dart/runtime/include/dart_api_dl.c",
@@ -178,6 +192,7 @@ template("embedder") {
 
     configs += [
       ":flutter_tizen_config",
+      ":flutter_tizen_hidden_visibility",
       "//flutter/shell/platform/common:desktop_library_implementation",
     ]
 
