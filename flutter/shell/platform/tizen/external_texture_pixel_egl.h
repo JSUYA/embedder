@@ -17,7 +17,7 @@ class ExternalTexturePixelEGL : public ExternalGLTexture {
       FlutterDesktopPixelBufferTextureCallback texture_callback,
       void* user_data);
 
-  ~ExternalTexturePixelEGL() = default;
+  ~ExternalTexturePixelEGL() override;
 
   bool PopulateGLTexture(size_t width,
                          size_t height,
@@ -28,6 +28,9 @@ class ExternalTexturePixelEGL : public ExternalGLTexture {
  private:
   FlutterDesktopPixelBufferTextureCallback texture_callback_ = nullptr;
   void* user_data_ = nullptr;
+  bool texture_storage_initialized_ = false;
+  size_t texture_width_ = 0;
+  size_t texture_height_ = 0;
 };
 
 }  // namespace flutter
