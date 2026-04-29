@@ -13,9 +13,6 @@ config("flutter_tizen_config") {
   include_dirs = [
     "${sysroot_path}/usr/include/appfw",
     "${sysroot_path}/usr/include/base",
-    "${sysroot_path}/usr/include/dali",
-    "${sysroot_path}/usr/include/dali-adaptor",
-    "${sysroot_path}/usr/include/dali-toolkit",
     "${sysroot_path}/usr/include/dlog",
     "${sysroot_path}/usr/include/ecore-1",
     "${sysroot_path}/usr/include/ecore-imf-1",
@@ -38,6 +35,14 @@ config("flutter_tizen_config") {
   cflags_cc = [
     "-Wno-newline-eof",
     "-Wno-macro-redefined",
+  ]
+}
+
+config("flutter_tizen_nui_config") {
+  include_dirs = [
+    "${sysroot_path}/usr/include/dali",
+    "${sysroot_path}/usr/include/dali-adaptor",
+    "${sysroot_path}/usr/include/dali-toolkit",
   ]
 }
 
@@ -159,21 +164,17 @@ template("embedder") {
 
     if (api_version != "6.0") {
       sources += [
-        "flutter_tizen_nui.cc",
+        "flutter_tizen_nui_loader.cc",
         "tizen_clipboard.cc",
-        "tizen_renderer_nui_gl.cc",
-        "tizen_view_nui.cc",
-      ]
-
-      libs += [
-        "dali2-adaptor",
-        "dali2-core",
       ]
 
       defines += [
-        "NUI_SUPPORT",
         "CLIPBOARD_SUPPORT",
+        "NUI_SUPPORT",
+        "FLUTTER_TIZEN_NUI_LIBRARY=\"lib${target_name}_nui.so\"",
       ]
+
+      libs += [ "dl" ]
     }
 
     configs += [
@@ -200,10 +201,59 @@ template("embedder") {
   }
 }
 
+template("nui_embedder") {
+  target("shared_library", target_name) {
+    sources = [
+      "flutter_tizen_nui.cc",
+      "logger.cc",
+      "tizen_input_method_context.cc",
+      "tizen_view_nui.cc",
+    ]
+
+    libs = [
+      "dali2-adaptor",
+      "dali2-core",
+      "dlog",
+      "ecore",
+      "ecore_imf",
+      "ecore_input",
+      "eina",
+    ]
+
+    defines = invoker.defines
+    defines += [
+      "FLUTTER_ENGINE_NO_PROTOTYPES",
+      "NUI_SUPPORT",
+    ]
+
+    configs += [
+      ":flutter_tizen_config",
+      ":flutter_tizen_nui_config",
+      "//flutter/shell/platform/common:desktop_library_implementation",
+    ]
+
+    public_configs = [
+      ":relative_client_wrapper_headers",
+      "//flutter:config",
+    ]
+
+    deps = [
+      "//flutter/shell/platform/common:common_cpp_library_headers",
+      "//flutter/shell/platform/embedder:embedder_headers",
+    ]
+  }
+}
+
 embedder("flutter_tizen_mobile") {
   target_type = "shared_library"
 
   defines = [ "MOBILE_PROFILE" ]
+}
+
+if (api_version != "6.0") {
+  nui_embedder("flutter_tizen_mobile_nui") {
+    defines = [ "MOBILE_PROFILE" ]
+  }
 }
 
 embedder("flutter_tizen_mobile_experimental") {
@@ -212,10 +262,25 @@ embedder("flutter_tizen_mobile_experimental") {
   defines = [ "MOBILE_PROFILE" ]
 }
 
+if (api_version != "6.0") {
+  nui_embedder("flutter_tizen_mobile_experimental_nui") {
+    defines = [
+      "MOBILE_PROFILE",
+      "FLUTTER_TIZEN_EXPERIMENTAL",
+    ]
+  }
+}
+
 embedder("flutter_tizen_tv") {
   target_type = "shared_library"
 
   defines = [ "TV_PROFILE" ]
+}
+
+if (api_version != "6.0") {
+  nui_embedder("flutter_tizen_tv_nui") {
+    defines = [ "TV_PROFILE" ]
+  }
 }
 
 embedder("flutter_tizen_tv_experimental") {
@@ -224,16 +289,40 @@ embedder("flutter_tizen_tv_experimental") {
   defines = [ "TV_PROFILE" ]
 }
 
+if (api_version != "6.0") {
+  nui_embedder("flutter_tizen_tv_experimental_nui") {
+    defines = [
+      "TV_PROFILE",
+      "FLUTTER_TIZEN_EXPERIMENTAL",
+    ]
+  }
+}
+
 embedder("flutter_tizen_common") {
   target_type = "shared_library"
 
   defines = [ "COMMON_PROFILE" ]
 }
 
+if (api_version != "6.0") {
+  nui_embedder("flutter_tizen_common_nui") {
+    defines = [ "COMMON_PROFILE" ]
+  }
+}
+
 embedder("flutter_tizen_common_experimental") {
   target_type = "shared_library"
 
   defines = [ "COMMON_PROFILE" ]
+}
+
+if (api_version != "6.0") {
+  nui_embedder("flutter_tizen_common_experimental_nui") {
+    defines = [
+      "COMMON_PROFILE",
+      "FLUTTER_TIZEN_EXPERIMENTAL",
+    ]
+  }
 }
 
 embedder("flutter_tizen_source") {
@@ -288,4 +377,15 @@ group("flutter_tizen") {
     ":publish_cpp_client_wrapper",
     ":publish_headers_tizen",
   ]
+
+  if (api_version != "6.0") {
+    deps += [
+      ":flutter_tizen_common_experimental_nui",
+      ":flutter_tizen_common_nui",
+      ":flutter_tizen_mobile_experimental_nui",
+      ":flutter_tizen_mobile_nui",
+      ":flutter_tizen_tv_experimental_nui",
+      ":flutter_tizen_tv_nui",
+    ]
+  }
 }

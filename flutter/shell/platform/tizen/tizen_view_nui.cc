@@ -5,6 +5,7 @@
 #include "flutter/shell/platform/tizen/tizen_view_nui.h"
 
 #include <dali/devel-api/common/stage.h>
+#include <tbm_surface_queue.h>
 
 #include <string>
 
@@ -29,6 +30,11 @@ TizenViewNui::TizenViewNui(int32_t width,
 
 TizenViewNui::~TizenViewNui() {
   UnregisterEventHandlers();
+}
+
+void* TizenViewNui::GetRenderTarget() {
+  return Dali::AnyCast<tbm_surface_queue_h>(
+      native_image_queue_->GetNativeImageSourceQueue());
 }
 
 void TizenViewNui::RegisterEventHandlers() {
@@ -78,16 +84,16 @@ void TizenViewNui::RequestRendering() {
   rendering_callback_->Trigger();
 }
 
-void TizenViewNui::OnKey(const char* device_name,
-                         uint32_t device_class,
-                         uint32_t device_subclass,
-                         const char* key,
-                         const char* string,
-                         const char* compose,
-                         uint32_t modifiers,
-                         uint32_t scan_code,
-                         size_t timestamp,
-                         bool is_down) {
+void TizenViewNui::OnKeyEvent(const char* device_name,
+                              uint32_t device_class,
+                              uint32_t device_subclass,
+                              const char* key,
+                              const char* string,
+                              const char* compose,
+                              uint32_t modifiers,
+                              uint32_t scan_code,
+                              size_t timestamp,
+                              bool is_down) {
   bool handled = false;
 
   if (input_method_context_->IsInputPanelShown()) {

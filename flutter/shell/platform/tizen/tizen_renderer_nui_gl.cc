@@ -8,14 +8,12 @@ namespace flutter {
 
 TizenRendererNuiGL::TizenRendererNuiGL(TizenViewNui* view_nui,
                                        bool enable_impeller)
-    : TizenRendererEgl(view_nui, enable_impeller), view_(view_nui) {}
+    : TizenRendererEgl(view_nui, enable_impeller) {}
 
 TizenRendererNuiGL::~TizenRendererNuiGL() {}
 
 bool TizenRendererNuiGL::OnPresent() {
-  bool result = TizenRendererEgl::OnPresent();
-  view_->RequestRendering();
-  return result;
+  return TizenRendererEgl::OnPresent();
 }
 
 }  // namespace flutter

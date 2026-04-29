@@ -14,11 +14,6 @@
 #include "flutter/shell/platform/tizen/flutter_tizen_view.h"
 #include "flutter/shell/platform/tizen/logger.h"
 #include "flutter/shell/platform/tizen/public/flutter_platform_view.h"
-#include "flutter/shell/platform/tizen/tizen_view.h"
-#ifdef NUI_SUPPORT
-#include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
-#include "flutter/shell/platform/tizen/tizen_view_nui.h"
-#endif
 #include "flutter/shell/platform/tizen/tizen_window.h"
 #include "flutter/shell/platform/tizen/tizen_window_ecore_wl2.h"
 
@@ -277,31 +272,17 @@ void FlutterDesktopViewOnKeyEvent(FlutterDesktopViewRef view,
                                   uint32_t scan_code,
                                   size_t timestamp,
                                   bool is_down) {
-#ifdef NUI_SUPPORT
-  if (auto* nui_view = dynamic_cast<flutter::TizenViewNui*>(
-          ViewFromHandle(view)->tizen_view())) {
-    nui_view->OnKey(device_name, device_class, device_subclass, key, string,
-                    nullptr, modifiers, scan_code, timestamp, is_down);
-  }
-#else
-  ViewFromHandle(view)->OnKey(key, string, nullptr, modifiers, scan_code,
-                              device_name, is_down);
-#endif
+  ViewFromHandle(view)->tizen_view()->OnKeyEvent(
+      device_name, device_class, device_subclass, key, string, nullptr,
+      modifiers, scan_code, timestamp, is_down);
 }
 
 void FlutterDesktopViewSetFocus(FlutterDesktopViewRef view, bool focused) {
-  if (auto* tizen_view = dynamic_cast<flutter::TizenView*>(
-          ViewFromHandle(view)->tizen_view())) {
-    tizen_view->SetFocus(focused);
-  }
+  ViewFromHandle(view)->tizen_view()->SetFocus(focused);
 }
 
 bool FlutterDesktopViewIsFocused(FlutterDesktopViewRef view) {
-  if (auto* tizen_view = dynamic_cast<flutter::TizenView*>(
-          ViewFromHandle(view)->tizen_view())) {
-    return tizen_view->focused();
-  }
-  return false;
+  return ViewFromHandle(view)->tizen_view()->IsFocused();
 }
 
 void FlutterDesktopRegisterViewFactory(

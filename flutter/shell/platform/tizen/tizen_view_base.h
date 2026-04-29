@@ -5,6 +5,7 @@
 #ifndef EMBEDDER_TIZEN_VIEW_BASE_H_
 #define EMBEDDER_TIZEN_VIEW_BASE_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -28,6 +29,8 @@ class TizenViewBase {
   // by the rendering backend.
   virtual void* GetRenderTarget() = 0;
 
+  virtual void* GetRenderTargetDisplay() { return nullptr; }
+
   virtual void* GetNativeHandle() = 0;
 
   virtual uintptr_t GetWindowId() = 0;
@@ -44,6 +47,28 @@ class TizenViewBase {
   virtual uint32_t GetResourceId() = 0;
 
   virtual void UpdateFlutterCursor(const std::string& kind) = 0;
+
+  virtual bool IsFocused() { return false; }
+
+  virtual void SetFocus(bool) {}
+
+  virtual void RequestRendering() {}
+
+  virtual void OnKeyEvent(const char* device_name,
+                          uint32_t,
+                          uint32_t,
+                          const char* key,
+                          const char* string,
+                          const char* compose,
+                          uint32_t modifiers,
+                          uint32_t scan_code,
+                          size_t,
+                          bool is_down) {
+    if (view_delegate_) {
+      view_delegate_->OnKey(key, string, compose, modifiers, scan_code,
+                            device_name, is_down);
+    }
+  }
 
   // Sets the delegate used to communicate state changes from render target to
   // view such as key presses, mouse position updates etc.

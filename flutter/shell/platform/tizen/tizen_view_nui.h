@@ -30,7 +30,7 @@ class TizenViewNui : public TizenView {
 
   bool SetGeometry(TizenGeometry geometry) override;
 
-  void* GetRenderTarget() override { return native_image_queue_.Get(); }
+  void* GetRenderTarget() override;
 
   void* GetNativeHandle() override { return image_view_; }
 
@@ -42,18 +42,18 @@ class TizenViewNui : public TizenView {
 
   void Show() override;
 
-  void RequestRendering();
+  void RequestRendering() override;
 
-  void OnKey(const char* device_name,
-             uint32_t device_class,
-             uint32_t device_subclass,
-             const char* key,
-             const char* string,
-             const char* compose,
-             uint32_t modifiers,
-             uint32_t scan_code,
-             size_t timestamp,
-             bool is_down);
+  void OnKeyEvent(const char* device_name,
+                  uint32_t device_class,
+                  uint32_t device_subclass,
+                  const char* key,
+                  const char* string,
+                  const char* compose,
+                  uint32_t modifiers,
+                  uint32_t scan_code,
+                  size_t timestamp,
+                  bool is_down) override;
 
   void UpdateFlutterCursor(const std::string& kind) override;
 

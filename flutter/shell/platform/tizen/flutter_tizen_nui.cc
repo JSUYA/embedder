@@ -9,29 +9,20 @@
 
 #include <memory>
 
-#include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
-#include "flutter/shell/platform/tizen/flutter_tizen_view.h"
+#include "flutter/shell/platform/tizen/flutter_tizen_nui_bridge.h"
 #include "flutter/shell/platform/tizen/tizen_view_nui.h"
 
-namespace {
-
-// Returns the engine corresponding to the given opaque API handle.
-flutter::FlutterTizenEngine* EngineFromHandle(FlutterDesktopEngineRef ref) {
-  return reinterpret_cast<flutter::FlutterTizenEngine*>(ref);
-}
-
-FlutterDesktopViewRef HandleForView(flutter::FlutterTizenView* view) {
-  return reinterpret_cast<FlutterDesktopViewRef>(view);
-}
-
-}  // namespace
-
-FlutterDesktopViewRef FlutterDesktopViewCreateFromImageView(
+extern "C" FlutterDesktopViewRef FlutterDesktopViewCreateFromImageViewNui(
     const FlutterDesktopViewProperties& view_properties,
     FlutterDesktopEngineRef engine,
     void* image_view,
     void* native_image_queue,
-    int32_t default_window_id) {
+    int32_t default_window_id,
+    const FlutterTizenNuiBridge* bridge) {
+  if (!bridge || !bridge->create_view) {
+    return nullptr;
+  }
+
   std::unique_ptr<flutter::TizenViewBase> tizen_view =
       std::make_unique<flutter::TizenViewNui>(
           view_properties.width, view_properties.height,
@@ -39,18 +30,5 @@ FlutterDesktopViewRef FlutterDesktopViewCreateFromImageView(
           reinterpret_cast<Dali::NativeImageSourceQueue*>(native_image_queue),
           default_window_id);
 
-  auto view = std::make_unique<flutter::FlutterTizenView>(
-      flutter::kImplicitViewId, std::move(tizen_view),
-      std::unique_ptr<flutter::FlutterTizenEngine>(EngineFromHandle(engine)),
-      FlutterDesktopRendererType::kEGL);
-
-  if (!view->engine()->IsRunning()) {
-    if (!view->engine()->RunEngine()) {
-      return nullptr;
-    }
-  }
-
-  view->SendInitialGeometry();
-
-  return HandleForView(view.release());
+  return bridge->create_view(view_properties, engine, tizen_view.release());
 }

@@ -20,9 +20,6 @@ class TizenRendererNuiGL : public TizenRendererEgl {
   virtual ~TizenRendererNuiGL();
 
   bool OnPresent() override;
-
- private:
-  TizenViewNui* view_;
 };
 
 }  // namespace flutter

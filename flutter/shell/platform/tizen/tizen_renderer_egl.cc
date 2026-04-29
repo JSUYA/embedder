@@ -8,9 +8,6 @@
 #include <Ecore_Wl2.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
-#ifdef NUI_SUPPORT
-#include <dali/devel-api/adaptor-framework/native-image-source-queue.h>
-#endif
 #include <tbm_dummy_display.h>
 #include <tbm_surface.h>
 #include <tbm_surface_queue.h>
@@ -23,7 +20,7 @@ namespace flutter {
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
                                    bool enable_impeller)
-    : enable_impeller_(enable_impeller) {
+    : view_(view_base), enable_impeller_(enable_impeller) {
   TizenRenderer::CreateSurface(view_base);
 }
 
@@ -99,17 +96,10 @@ bool TizenRendererEgl::CreateSurface(void* render_target,
       egl_surface_ = eglCreateWindowSurface(
           egl_display_, egl_config_,
           reinterpret_cast<EGLNativeWindowType>(egl_window), attribs);
-    } else {
-#ifdef NUI_SUPPORT
-      Dali::NativeImageSourceQueuePtr dali_native_image_queue =
-          static_cast<Dali::NativeImageSourceQueue*>(render_target);
-      tbm_surface_queue_h tbm_surface_queue_ =
-          Dali::AnyCast<tbm_surface_queue_h>(
-              dali_native_image_queue->GetNativeImageSourceQueue());
+    } else if (render_target) {
       egl_surface_ = eglCreateWindowSurface(
           egl_display_, egl_config_,
-          reinterpret_cast<EGLNativeWindowType>(tbm_surface_queue_), attribs);
-#endif
+          reinterpret_cast<EGLNativeWindowType>(render_target), attribs);
     }
 
     if (egl_surface_ == EGL_NO_SURFACE) {
@@ -294,14 +284,17 @@ bool TizenRendererEgl::OnMakeResourceCurrent() {
 
 bool TizenRendererEgl::OnPresent() {
   if (!IsValid()) {
+    view_->RequestRendering();
     return false;
   }
 
   if (eglSwapBuffers(egl_display_, egl_surface_) != EGL_TRUE) {
     PrintEGLError();
     FT_LOG(Error) << "Could not swap EGL buffers.";
+    view_->RequestRendering();
     return false;
   }
+  view_->RequestRendering();
   return true;
 }
 

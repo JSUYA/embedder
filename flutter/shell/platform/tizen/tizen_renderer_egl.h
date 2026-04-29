@@ -54,6 +54,7 @@ class TizenRendererEgl : public TizenRendererGL {
 
   void PrintEGLError();
 
+  TizenViewBase* view_ = nullptr;
   EGLConfig egl_config_ = nullptr;
   EGLDisplay egl_display_ = EGL_NO_DISPLAY;
   EGLContext egl_context_ = EGL_NO_CONTEXT;
