@@ -5,6 +5,8 @@
 
 #include "flutter_tizen_engine.h"
 
+#include <malloc.h>
+
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -394,7 +396,11 @@ void FlutterTizenEngine::SetupLocales() {
 }
 
 void FlutterTizenEngine::NotifyLowMemoryWarning() {
+  if (!engine_) {
+    return;
+  }
   embedder_api_.NotifyLowMemoryWarning(engine_);
+  malloc_trim(0);
 }
 
 bool FlutterTizenEngine::RegisterExternalTexture(int64_t texture_id) {
