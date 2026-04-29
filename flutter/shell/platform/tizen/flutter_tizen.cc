@@ -282,11 +282,11 @@ void FlutterDesktopViewOnKeyEvent(FlutterDesktopViewRef view,
           ViewFromHandle(view)->tizen_view())) {
     nui_view->OnKey(device_name, device_class, device_subclass, key, string,
                     nullptr, modifiers, scan_code, timestamp, is_down);
+    return;
   }
-#else
+#endif
   ViewFromHandle(view)->OnKey(key, string, nullptr, modifiers, scan_code,
                               device_name, is_down);
-#endif
 }
 
 void FlutterDesktopViewSetFocus(FlutterDesktopViewRef view, bool focused) {
