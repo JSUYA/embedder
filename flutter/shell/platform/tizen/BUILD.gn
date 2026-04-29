@@ -41,6 +41,22 @@ config("flutter_tizen_config") {
   ]
 }
 
+# Size-oriented build flags. Each unused function or data symbol gets its
+# own ELF section so the linker's --gc-sections pass can drop it. --as-needed
+# avoids recording DT_NEEDED entries for libraries the binary doesn't actually
+# call into. The combination cuts both .text/.rodata pages (lower PSS) and
+# the number of resolved-but-unused dynamic dependencies.
+config("flutter_tizen_size_optimized") {
+  cflags = [
+    "-ffunction-sections",
+    "-fdata-sections",
+  ]
+  ldflags = [
+    "-Wl,--gc-sections",
+    "-Wl,--as-needed",
+  ]
+}
+
 config("relative_client_wrapper_headers") {
   include_dirs = [ "//flutter/shell/platform/common/client_wrapper/include" ]
 }
@@ -178,6 +194,7 @@ template("embedder") {
 
     configs += [
       ":flutter_tizen_config",
+      ":flutter_tizen_size_optimized",
       "//flutter/shell/platform/common:desktop_library_implementation",
     ]
 
