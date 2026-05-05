@@ -203,6 +203,22 @@ bool TizenWindowEcoreWl2::CreateWindow(void* window_handle) {
     initial_geometry_.height = height;
   }
 
+#ifdef TV_PROFILE
+  // On Samsung Tizen TV the rendered Flutter surface ends up two physical
+  // pixels short of the panel's bottom edge when the requested window
+  // height matches the panel height. The gap is normally invisible because
+  // the compositor background is black, but it lets hardware overlay
+  // planes (for example the AVPlay video plane) bleed through at the
+  // bottom of the screen. Extending the requested surface by two rows
+  // keeps the panel fully covered; the extra rows fall outside the
+  // visible area on TVs that do not exhibit the offset, so the
+  // compensation is harmless. The root cause is in the platform window
+  // manager and has not yet been identified — this is an empirical fix.
+  if (initial_geometry_.height == height) {
+    initial_geometry_.height += 2;
+  }
+#endif
+
   if (window_handle == nullptr) {
     ecore_wl2_window_ =
         ecore_wl2_window_new(ecore_wl2_display_, nullptr,
