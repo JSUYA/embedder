@@ -126,6 +126,14 @@ TdmClient::TdmClient(FlutterTizenEngine* engine) {
   }
   tdm_client_vblank_set_enable_fake(vblank_, 1);
 
+  // Query the actual display refresh rate so frame target times match the
+  // panel instead of assuming a fixed 60Hz. Keeps the 60Hz fallback on error.
+  unsigned int refresh = 0;
+  if (tdm_client_output_get_refresh_rate(output_, &refresh) == TDM_ERROR_NONE &&
+      refresh > 0) {
+    vblank_interval_nanos_ = 1000000000ULL / refresh;
+  }
+
   engine_ = engine;
 }
 
@@ -171,8 +179,11 @@ void TdmClient::VblankCallback(tdm_client_vblank* vblank,
 
   std::lock_guard<std::mutex> lock(self->engine_mutex_);
   if (self->engine_) {
-    uint64_t frame_start_time_nanos = tv_sec * 1e9 + tv_usec * 1e3;
-    uint64_t frame_target_time_nanos = frame_start_time_nanos + 16.6 * 1e6;
+    uint64_t frame_start_time_nanos =
+        static_cast<uint64_t>(tv_sec) * 1000000000ULL +
+        static_cast<uint64_t>(tv_usec) * 1000ULL;
+    uint64_t frame_target_time_nanos =
+        frame_start_time_nanos + self->vblank_interval_nanos_;
     self->engine_->OnVsync(self->baton_, frame_start_time_nanos,
                            frame_target_time_nanos);
   }

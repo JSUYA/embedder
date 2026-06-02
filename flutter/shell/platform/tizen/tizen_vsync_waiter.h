@@ -42,6 +42,8 @@ class TdmClient {
   tdm_client_vblank* vblank_ = nullptr;
 
   intptr_t baton_ = 0;
+  // Nanoseconds between vblanks, queried from the display. Defaults to 60Hz.
+  uint64_t vblank_interval_nanos_ = 16666667;
 };
 
 class TizenVsyncWaiter {
