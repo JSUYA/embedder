@@ -181,7 +181,11 @@ void FlutterDesktopEngineNotifyAppIsResumed(FlutterDesktopEngineRef engine) {
 }
 
 void FlutterDesktopEngineNotifyAppIsPaused(FlutterDesktopEngineRef engine) {
-  EngineFromHandle(engine)->lifecycle_channel()->AppIsPaused();
+  auto* tizen_engine = EngineFromHandle(engine);
+  tizen_engine->lifecycle_channel()->AppIsPaused();
+  // Release non-critical caches when moving to the background so that
+  // foreground apps can reclaim memory on memory-constrained Tizen devices.
+  tizen_engine->NotifyLowMemoryWarning();
 }
 
 void FlutterDesktopEngineNotifyAppIsDetached(FlutterDesktopEngineRef engine) {
