@@ -130,6 +130,30 @@ bool FlutterTizenEngine::RunEngine() {
   // flags the first item is treated as the executable and ignored. Add a dummy
   // value so that all provided arguments are used.
   std::vector<std::string> engine_args = project_->engine_arguments();
+
+#ifdef TV_PROFILE
+  // TV devices pair a high-resolution (often 4K) display with a constrained
+  // GPU/system memory budget. By default the engine sizes the Skia GPU
+  // resource cache as width * height * 12 * 4 bytes with no ceiling (~398MB at
+  // 4K) and leaves the Dart old-gen heap unbounded. Cap both unless the app
+  // already provided its own value.
+  const size_t kResourceCacheMaxBytes = 96 * (1 << 20);  // 96 MB
+  const int kDartOldGenHeapSizeMB = 256;                 // MB
+  auto has_engine_arg = [&engine_args](const char* prefix) {
+    return std::any_of(
+        engine_args.begin(), engine_args.end(),
+        [prefix](const std::string& arg) { return arg.rfind(prefix, 0) == 0; });
+  };
+  if (!has_engine_arg("--resource-cache-max-bytes-threshold")) {
+    engine_args.push_back("--resource-cache-max-bytes-threshold=" +
+                          std::to_string(kResourceCacheMaxBytes));
+  }
+  if (!has_engine_arg("--old-gen-heap-size")) {
+    engine_args.push_back("--old-gen-heap-size=" +
+                          std::to_string(kDartOldGenHeapSizeMB));
+  }
+#endif  // TV_PROFILE
+
   std::vector<const char*> engine_argv = {"placeholder"};
   std::transform(
       engine_args.begin(), engine_args.end(), std::back_inserter(engine_argv),
