@@ -18,6 +18,10 @@ enum class ExternalTextureExtensionType { kNone, kNativeSurface, kDmaBuffer };
 struct ExternalTextureGLState {
   uint32_t gl_texture;
   ExternalTextureExtensionType gl_extension;
+  // Dimensions the GL texture storage was last allocated for, used to decide
+  // between glTexImage2D (reallocate) and glTexSubImage2D (update in place).
+  size_t width = 0;
+  size_t height = 0;
 };
 
 static std::atomic<int64_t> next_texture_id = {1};

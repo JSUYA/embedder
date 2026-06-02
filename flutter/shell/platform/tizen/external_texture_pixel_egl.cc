@@ -52,6 +52,7 @@ bool ExternalTexturePixelEGL::CopyPixelBuffer(size_t& width, size_t& height) {
   width = pixel_buffer->width;
   height = pixel_buffer->height;
 
+  bool allocate_storage = false;
   if (state_->gl_texture == 0) {
     glGenTextures(1, static_cast<GLuint*>(&state_->gl_texture));
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(state_->gl_texture));
@@ -59,12 +60,25 @@ bool ExternalTexturePixelEGL::CopyPixelBuffer(size_t& width, size_t& height) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER_OES);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    allocate_storage = true;
   } else {
     glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(state_->gl_texture));
   }
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pixel_buffer->width,
-               pixel_buffer->height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-               pixel_buffer->buffer);
+
+  // Reallocate texture storage only when the size changes; otherwise update the
+  // existing storage in place to avoid a per-frame texture reallocation.
+  if (allocate_storage || state_->width != pixel_buffer->width ||
+      state_->height != pixel_buffer->height) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pixel_buffer->width,
+                 pixel_buffer->height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 pixel_buffer->buffer);
+    state_->width = pixel_buffer->width;
+    state_->height = pixel_buffer->height;
+  } else {
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pixel_buffer->width,
+                    pixel_buffer->height, GL_RGBA, GL_UNSIGNED_BYTE,
+                    pixel_buffer->buffer);
+  }
   return true;
 }
 
