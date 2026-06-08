@@ -143,6 +143,7 @@ void TextInputChannel::HandleMethodCall(
     result->NotImplemented();
     return;
   } else if (method.compare(kClearClientMethod) == 0) {
+    input_method_context_->SetEditingActive(false);
     active_model_ = nullptr;
   } else if (method.compare(kSetClientMethod) == 0) {
     if (!method_call.arguments() || method_call.arguments()->IsNull()) {
@@ -212,7 +213,15 @@ void TextInputChannel::HandleMethodCall(
         // change. See https://github.com/flutter-tizen/engine/pull/194.
         input_method_context_->HideInputPanel();
         if (input_type_ != kNoneInputType) {
+          input_method_context_->SetInputPanelEnabled(true);
           input_method_context_->ShowInputPanel();
+          input_method_context_->SetEditingActive(true);
+        } else {
+          // TextInputType.none: do not show the on-screen keyboard, but keep the
+          // IMF context focused so that hardware keyboard input (including the
+          // Hangul toggle and composition) is still routed through the engine.
+          input_method_context_->SetInputPanelEnabled(false);
+          input_method_context_->SetEditingActive(true);
         }
       }
     }

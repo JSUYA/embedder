@@ -4,6 +4,8 @@
 
 #include "tizen_input_method_context.h"
 
+#include <cstring>
+
 #include "flutter/shell/platform/tizen/logger.h"
 
 namespace {
@@ -113,6 +115,28 @@ T EcoreEventKeyToEcoreImfEvent(Ecore_Event_Key* event) {
   }
 
   return imf_event;
+}
+
+bool IsNavigationOrSystemKey(const char* key) {
+  if (!key) {
+    return false;
+  }
+  // Multimedia / system / TV remote keys.
+  if (strncmp(key, "XF86", 4) == 0) {
+    return true;
+  }
+  // Directional and action keys used for app/remote navigation.
+  static const char* kNavigationKeys[] = {
+      "Up",       "Down",    "Left",     "Right",  "KP_Up",
+      "KP_Down",  "KP_Left", "KP_Right", "Return", "KP_Enter",
+      "Select",
+  };
+  for (const char* nav_key : kNavigationKeys) {
+    if (strcmp(key, nav_key) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -242,13 +266,46 @@ void TizenInputMethodContext::ResetInputMethodContext() {
 void TizenInputMethodContext::ShowInputPanel() {
   FT_ASSERT(imf_context_);
   ecore_imf_context_input_panel_show(imf_context_);
-  ecore_imf_context_focus_in(imf_context_);
 }
 
 void TizenInputMethodContext::HideInputPanel() {
   FT_ASSERT(imf_context_);
-  ecore_imf_context_focus_out(imf_context_);
   ecore_imf_context_input_panel_hide(imf_context_);
+}
+
+void TizenInputMethodContext::SetEditingActive(bool active) {
+  if (!imf_context_ || editing_active_ == active) {
+    return;
+  }
+  editing_active_ = active;
+  if (active) {
+    ecore_imf_context_focus_in(imf_context_);
+  } else {
+    ecore_imf_context_focus_out(imf_context_);
+  }
+}
+
+void TizenInputMethodContext::SetInputPanelEnabled(bool enabled) {
+  FT_ASSERT(imf_context_);
+  ecore_imf_context_input_panel_enabled_set(imf_context_, enabled);
+}
+
+bool TizenInputMethodContext::ShouldFilterKey(const char* key) {
+  // Navigation and system keys (remote-control direction keys, action keys and
+  // multimedia keys) must always reach the framework so that focus movement and
+  // app navigation keep working, even while the input panel is shown.
+  if (IsNavigationOrSystemKey(key)) {
+    return false;
+  }
+  // While the input panel is shown the IMF must own the remaining key events so
+  // that on-screen keyboard text entry works.
+  if (IsInputPanelShown()) {
+    return true;
+  }
+  // Otherwise filter only while a text field is being edited, so that hardware
+  // keyboard input is composed by the IMF engine (e.g. Hangul) even when the
+  // on-screen panel is hidden.
+  return editing_active_;
 }
 
 bool TizenInputMethodContext::IsInputPanelShown() {

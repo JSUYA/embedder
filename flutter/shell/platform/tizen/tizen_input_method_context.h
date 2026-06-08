@@ -53,6 +53,22 @@ class TizenInputMethodContext {
 
   bool IsInputPanelShown();
 
+  // Sets whether a text input client is currently being edited. While active,
+  // the IMF context keeps focus so that key events can be filtered (and Hangul
+  // composition performed) even when the on-screen input panel is hidden, e.g.
+  // when typing with a hardware keyboard.
+  void SetEditingActive(bool active);
+
+  // Enables or disables the on-screen input panel. When disabled, focusing the
+  // IMF context does not pop up the on-screen keyboard, so a TextInputType.none
+  // field can still receive (and Hangul-compose) hardware keyboard input
+  // without showing the panel.
+  void SetInputPanelEnabled(bool enabled);
+
+  // Returns whether the given key event should be routed to the IMF engine.
+  // See the implementation for the panel/editing/navigation key rules.
+  bool ShouldFilterKey(const char* key);
+
   void SetInputPanelLayout(const std::string& layout);
 
   void SetInputPanelLayoutVariation(bool is_signed, bool is_decimal);
@@ -93,6 +109,7 @@ class TizenInputMethodContext {
   Ecore_Device* ecore_device_ = nullptr;
 #endif
   Ecore_IMF_Context* imf_context_ = nullptr;
+  bool editing_active_ = false;
   OnCommit on_commit_;
   OnPreeditChanged on_preedit_changed_;
   OnPreeditStart on_preedit_start_;
