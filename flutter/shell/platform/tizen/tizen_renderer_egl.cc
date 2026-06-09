@@ -158,7 +158,10 @@ void TizenRendererEgl::DestroySurface() {
       egl_resource_context_ = EGL_NO_CONTEXT;
     }
 
-    eglTerminate(egl_display_);
+    // Don't eglTerminate(): |egl_display_| is a process-wide shared display
+    // (from eglGetDisplay()) that in-process EGL clients like the webview
+    // share. Terminating it would invalidate their contexts and crash them on
+    // exit. The display is reclaimed at process exit.
     egl_display_ = EGL_NO_DISPLAY;
   }
 }
