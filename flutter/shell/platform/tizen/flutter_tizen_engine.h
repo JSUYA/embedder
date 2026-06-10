@@ -6,6 +6,7 @@
 #ifndef EMBEDDER_FLUTTER_TIZEN_ENGINE_H_
 #define EMBEDDER_FLUTTER_TIZEN_ENGINE_H_
 
+#include <future>
 #include <memory>
 
 #include "flutter/shell/platform/common/accessibility_bridge.h"
@@ -215,6 +216,11 @@ class FlutterTizenEngine {
 
   // AOT data for this engine instance, if applicable.
   UniqueAotDataPtr aot_data_;
+
+  // Pending result of the AOT data load started in the constructor, so that
+  // reading the AOT snapshot from disk overlaps with window and renderer
+  // setup on the platform thread.
+  std::future<UniqueAotDataPtr> aot_data_future_;
 
   // The view displaying the content running in this engine, if any.
   FlutterTizenView* view_ = nullptr;

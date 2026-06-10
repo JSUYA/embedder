@@ -26,6 +26,10 @@ class TdmClient {
   TdmClient(FlutterTizenEngine* engine);
   virtual ~TdmClient();
 
+  // Establishes the TDM connection. Called on the vsync message loop thread
+  // to keep TDM IPC off the platform thread during startup.
+  void EnsureConnected();
+
   bool IsValid();
   void OnEngineStop();
   void AwaitVblank(intptr_t baton);

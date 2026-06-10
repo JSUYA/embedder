@@ -80,6 +80,15 @@ FlutterTizenEngine::FlutterTizenEngine(const FlutterProjectBundle& project)
   plugin_registrar_->engine = this;
 
   display_monitor_ = std::make_unique<FlutterTizenDisplayMonitor>(this);
+
+  // Start loading the AOT snapshot in the background so that the disk read
+  // overlaps with window and renderer initialization. RunEngine joins on the
+  // result.
+  if (embedder_api_.RunsAOTCompiledDartCode() && project_->HasValidPaths()) {
+    aot_data_future_ = std::async(std::launch::async, [this]() {
+      return project_->LoadAotData(embedder_api_);
+    });
+  }
 }
 
 FlutterTizenEngine::~FlutterTizenEngine() {
@@ -125,7 +134,8 @@ bool FlutterTizenEngine::RunEngine() {
   std::string assets_path_string = project_->assets_path().u8string();
   std::string icu_path_string = project_->icu_path().u8string();
   if (embedder_api_.RunsAOTCompiledDartCode()) {
-    aot_data_ = project_->LoadAotData(embedder_api_);
+    aot_data_ = aot_data_future_.valid() ? aot_data_future_.get()
+                                         : project_->LoadAotData(embedder_api_);
     if (!aot_data_) {
       FT_LOG(Error) << "Unable to start engine without AOT data.";
       return false;

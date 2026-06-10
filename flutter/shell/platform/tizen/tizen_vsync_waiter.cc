@@ -10,7 +10,18 @@ namespace flutter {
 
 TizenVsyncWaiter::TizenVsyncWaiter(FlutterTizenEngine* engine)
     : tdm_client_(std::make_shared<TdmClient>(engine)),
-      message_loop_(std::make_unique<MessageLoop>()) {}
+      message_loop_(std::make_unique<MessageLoop>()) {
+  // Establish the TDM connection on the message loop thread so that the
+  // platform thread is not blocked on TDM IPC during engine startup. Tasks
+  // posted by AsyncWaitForVsync are queued behind this one, so the connection
+  // is always ready before the first vblank wait.
+  std::weak_ptr<TdmClient> tdm_client = tdm_client_;
+  message_loop_->PostTask([tdm_client_weak = std::move(tdm_client)]() {
+    if (auto tdm_client = tdm_client_weak.lock()) {
+      tdm_client->EnsureConnected();
+    }
+  });
+}
 
 TizenVsyncWaiter::~TizenVsyncWaiter() {
   tdm_client_->OnEngineStop();
@@ -31,7 +42,12 @@ void TizenVsyncWaiter::AsyncWaitForVsync(intptr_t baton) {
   });
 }
 
-TdmClient::TdmClient(FlutterTizenEngine* engine) {
+TdmClient::TdmClient(FlutterTizenEngine* engine) : engine_(engine) {}
+
+void TdmClient::EnsureConnected() {
+  if (IsValid()) {
+    return;
+  }
   tdm_error ret;
   client_ = tdm_client_create(&ret);
   if (ret != TDM_ERROR_NONE) {
@@ -51,7 +67,6 @@ TdmClient::TdmClient(FlutterTizenEngine* engine) {
     return;
   }
   tdm_client_vblank_set_enable_fake(vblank_, 1);
-  engine_ = engine;
 }
 
 TdmClient::~TdmClient() {
