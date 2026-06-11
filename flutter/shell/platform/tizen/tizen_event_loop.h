@@ -6,12 +6,13 @@
 #ifndef EMBEDDER_TIZEN_EVENT_LOOP_H_
 #define EMBEDDER_TIZEN_EVENT_LOOP_H_
 
-#include <Ecore.h>
+#include <glib.h>
 
 #include <atomic>
 #include <chrono>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <queue>
 #include <thread>
@@ -73,7 +74,12 @@ class TizenEventLoop {
   std::atomic<std::uint64_t> task_order_ = 0;
 
  private:
-  Ecore_Pipe* ecore_pipe_ = nullptr;
+  int pipe_fds_[2] = {-1, -1};
+  guint pipe_watch_id_ = 0;
+  // Shared with pending timeout callbacks so they can detect that this loop was
+  // destroyed and skip writing to the (now closed) pipe.
+  std::shared_ptr<std::atomic<bool>> alive_ =
+      std::make_shared<std::atomic<bool>>(true);
 
   // Returns a TaskTimePoint computed from the given target time from Flutter.
   TaskTimePoint TimePointFromFlutterTime(uint64_t flutter_target_time_nanos);

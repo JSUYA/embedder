@@ -5,9 +5,34 @@
 
 #include "tizen_event_loop.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <glib-unix.h>
+#include <unistd.h>
+
+#include <cmath>
 #include <utility>
 
+#include "flutter/shell/platform/tizen/logger.h"
+
 namespace flutter {
+
+namespace {
+
+// Writes a single wakeup byte to the pipe. A failed write with EAGAIN means
+// the pipe is full, i.e. a wakeup is already pending, so it can be ignored.
+void WriteWakeupByte(int fd) {
+  if (fd < 0) {
+    return;
+  }
+  const char byte = 1;
+  ssize_t bytes_written;
+  do {
+    bytes_written = write(fd, &byte, sizeof(byte));
+  } while (bytes_written < 0 && errno == EINTR);
+}
+
+}  // namespace
 
 TizenEventLoop::TizenEventLoop(std::thread::id main_thread_id,
                                CurrentTimeProc get_current_time,
@@ -15,17 +40,36 @@ TizenEventLoop::TizenEventLoop(std::thread::id main_thread_id,
     : main_thread_id_(main_thread_id),
       get_current_time_(get_current_time),
       on_task_expired_(std::move(on_task_expired)) {
-  ecore_pipe_ = ecore_pipe_add(
-      [](void* data, void* buffer, unsigned int nbyte) -> void {
-        auto* self = static_cast<TizenEventLoop*>(data);
-        self->ExecuteTaskEvents();
-      },
-      this);
+  if (pipe2(pipe_fds_, O_CLOEXEC | O_NONBLOCK) == 0) {
+    pipe_watch_id_ = g_unix_fd_add(
+        pipe_fds_[0], G_IO_IN,
+        [](gint fd, GIOCondition condition, gpointer data) -> gboolean {
+          auto* self = static_cast<TizenEventLoop*>(data);
+          // Drain all pending wakeup bytes before processing tasks.
+          char buffer[64];
+          ssize_t bytes_read;
+          do {
+            bytes_read = read(fd, buffer, sizeof(buffer));
+          } while (bytes_read > 0 || (bytes_read < 0 && errno == EINTR));
+          self->ExecuteTaskEvents();
+          return G_SOURCE_CONTINUE;
+        },
+        this);
+  } else {
+    FT_LOG(Error) << "Failed to create a wakeup pipe for the event loop.";
+  }
 }
 
 TizenEventLoop::~TizenEventLoop() {
-  if (ecore_pipe_) {
-    ecore_pipe_del(ecore_pipe_);
+  alive_->store(false);
+  if (pipe_watch_id_ > 0) {
+    g_source_remove(pipe_watch_id_);
+  }
+  if (pipe_fds_[0] >= 0) {
+    close(pipe_fds_[0]);
+  }
+  if (pipe_fds_[1] >= 0) {
+    close(pipe_fds_[1]);
   }
 }
 
@@ -74,20 +118,28 @@ void TizenEventLoop::PostTask(FlutterTask flutter_task,
   const double flutter_duration =
       static_cast<double>(flutter_target_time_nanos) - get_current_time_();
   if (flutter_duration > 0) {
-    ecore_timer_add(
-        flutter_duration / 1000000000.0,
-        [](void* data) -> Eina_Bool {
-          auto* self = static_cast<TizenEventLoop*>(data);
-          if (self->ecore_pipe_) {
-            ecore_pipe_write(self->ecore_pipe_, nullptr, 0);
+    struct TimeoutContext {
+      std::shared_ptr<std::atomic<bool>> alive;
+      int fd;
+    };
+    auto* context = new TimeoutContext{alive_, pipe_fds_[1]};
+    // GLib timeouts have millisecond resolution. Round up so that the timer
+    // never fires before the task's fire time; otherwise the wakeup would find
+    // no expired tasks and the task would never be rescheduled.
+    g_timeout_add_full(
+        G_PRIORITY_DEFAULT,
+        static_cast<guint>(std::ceil(flutter_duration / 1000000.0)),
+        [](gpointer data) -> gboolean {
+          auto* context = static_cast<TimeoutContext*>(data);
+          if (context->alive->load()) {
+            WriteWakeupByte(context->fd);
           }
-          return ECORE_CALLBACK_CANCEL;
+          return G_SOURCE_REMOVE;
         },
-        this);
+        context,
+        [](gpointer data) { delete static_cast<TimeoutContext*>(data); });
   } else {
-    if (ecore_pipe_) {
-      ecore_pipe_write(ecore_pipe_, nullptr, 0);
-    }
+    WriteWakeupByte(pipe_fds_[1]);
   }
 }
 
