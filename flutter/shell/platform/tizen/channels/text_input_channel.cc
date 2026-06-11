@@ -137,17 +137,25 @@ void TextInputChannel::HandleMethodCall(
       input_method_context_->ShowInputPanel();
     }
     if (active_model_) {
-      input_method_context_->SetEditingActive(true);
+      input_method_context_->SetEditingActive(
+          TizenInputMethodContext::EditingSource::kTextInput, true);
     }
   } else if (method.compare(kHideMethod) == 0) {
-    input_method_context_->SetEditingActive(false);
-    input_method_context_->HideInputPanel();
-    input_method_context_->ResetInputMethodContext();
+    // A platform view may have taken over editing in the meantime; do not
+    // tear down its session with a stale hide request.
+    if (input_method_context_->editing_source() !=
+        TizenInputMethodContext::EditingSource::kPlatformView) {
+      input_method_context_->SetEditingActive(
+          TizenInputMethodContext::EditingSource::kTextInput, false);
+      input_method_context_->HideInputPanel();
+      input_method_context_->ResetInputMethodContext();
+    }
   } else if (method.compare(kSetPlatformViewClient) == 0) {
     result->NotImplemented();
     return;
   } else if (method.compare(kClearClientMethod) == 0) {
-    input_method_context_->SetEditingActive(false);
+    input_method_context_->SetEditingActive(
+        TizenInputMethodContext::EditingSource::kTextInput, false);
     active_model_ = nullptr;
   } else if (method.compare(kSetClientMethod) == 0) {
     if (!method_call.arguments() || method_call.arguments()->IsNull()) {
@@ -230,7 +238,8 @@ void TextInputChannel::HandleMethodCall(
     input_method_context_->ResetInputMethodContext();
 
     active_model_ = std::make_unique<TextInputModel>();
-    input_method_context_->SetEditingActive(true);
+    input_method_context_->SetEditingActive(
+        TizenInputMethodContext::EditingSource::kTextInput, true);
   } else if (method.compare(kSetEditingStateMethod) == 0) {
     if (!method_call.arguments() || method_call.arguments()->IsNull()) {
       result->Error(kBadArgumentError, "Method invoked without args.");

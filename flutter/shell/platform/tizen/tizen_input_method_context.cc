@@ -283,17 +283,23 @@ void TizenInputMethodContext::HideInputPanel() {
   ecore_imf_context_input_panel_hide(imf_context_);
 }
 
-void TizenInputMethodContext::SetEditingActive(bool active) {
+void TizenInputMethodContext::SetEditingActive(EditingSource source,
+                                               bool active) {
   if (!imf_context_) {
     return;
   }
-  editing_active_ = active;
   if (active) {
+    editing_source_ = source;
     // Issue focus_in unconditionally (it is idempotent) so that a show
     // request can always restore the ISE connection, even when the editing
     // state has not changed.
     ecore_imf_context_focus_in(imf_context_);
   } else {
+    if (editing_source_ != source) {
+      // Not the current owner; ignore the stale deactivation.
+      return;
+    }
+    editing_source_ = EditingSource::kNone;
     ecore_imf_context_focus_out(imf_context_);
   }
 }
@@ -312,7 +318,8 @@ bool TizenInputMethodContext::ShouldFilterKey(const char* key) {
   if (IsInputPanelShown()) {
     return true;
   }
-  return editing_active_ && !IsNavigationOrSystemKey(key);
+  return editing_source_ != EditingSource::kNone &&
+         !IsNavigationOrSystemKey(key);
 }
 
 bool TizenInputMethodContext::IsInputPanelShown() {

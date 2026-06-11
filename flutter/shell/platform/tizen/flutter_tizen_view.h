@@ -16,6 +16,7 @@
 #include "flutter/shell/platform/tizen/channels/input_panel_channel.h"
 #include "flutter/shell/platform/tizen/channels/mouse_cursor_channel.h"
 #include "flutter/shell/platform/tizen/channels/platform_channel.h"
+#include "flutter/shell/platform/tizen/channels/platform_view_text_input_channel.h"
 #include "flutter/shell/platform/tizen/channels/text_input_channel.h"
 #include "flutter/shell/platform/tizen/channels/window_channel.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
@@ -132,6 +133,10 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
     uint64_t buttons = 0;
   };
 
+  // Whether composition events should be routed to the platform view text
+  // input channel instead of the text input channel.
+  bool IsPlatformViewEditing();
+
   // Creates a PointerState object unless it already exists.
   PointerState* GetOrCreatePointerState(FlutterPointerDeviceKind device_kind,
                                         int32_t device_id);
@@ -185,6 +190,10 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
 
   // A plugin that implements the Flutter textinput channel.
   std::unique_ptr<TextInputChannel> text_input_channel_;
+
+  // A plugin that lends the input method context to platform views.
+  std::unique_ptr<PlatformViewTextInputChannel>
+      platform_view_text_input_channel_;
 
   // A plugin to report input device information.
   std::unique_ptr<InputDeviceChannel> input_device_channel_;

@@ -94,6 +94,9 @@ void FlutterTizenView::SetupChannels() {
   text_input_channel_ = std::make_unique<TextInputChannel>(
       internal_plugin_registrar_->messenger(),
       tizen_view_->input_method_context());
+  platform_view_text_input_channel_ =
+      std::make_unique<PlatformViewTextInputChannel>(
+          messenger, tizen_view_->input_method_context());
 
   input_device_channel_ = std::make_unique<InputDeviceChannel>(messenger);
   input_panel_channel_ = std::make_unique<InputPanelChannel>(
@@ -315,19 +318,42 @@ void FlutterTizenView::OnKey(const char* key,
   }
 }
 
+bool FlutterTizenView::IsPlatformViewEditing() {
+  TizenInputMethodContext* context = tizen_view_->input_method_context();
+  return context && context->editing_source() ==
+                        TizenInputMethodContext::EditingSource::kPlatformView &&
+         platform_view_text_input_channel_->IsActive();
+}
+
 void FlutterTizenView::OnComposeBegin() {
+  if (IsPlatformViewEditing()) {
+    platform_view_text_input_channel_->OnComposeBegin();
+    return;
+  }
   text_input_channel_->OnComposeBegin();
 }
 
 void FlutterTizenView::OnComposeChange(const std::string& str, int cursor_pos) {
+  if (IsPlatformViewEditing()) {
+    platform_view_text_input_channel_->OnComposeChange(str, cursor_pos);
+    return;
+  }
   text_input_channel_->OnComposeChange(str, cursor_pos);
 }
 
 void FlutterTizenView::OnComposeEnd() {
+  if (IsPlatformViewEditing()) {
+    platform_view_text_input_channel_->OnComposeEnd();
+    return;
+  }
   text_input_channel_->OnComposeEnd();
 }
 
 void FlutterTizenView::OnCommit(const std::string& str) {
+  if (IsPlatformViewEditing()) {
+    platform_view_text_input_channel_->OnCommit(str);
+    return;
+  }
   text_input_channel_->OnCommit(str);
 }
 

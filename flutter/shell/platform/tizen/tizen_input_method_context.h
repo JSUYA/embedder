@@ -26,6 +26,13 @@ struct InputPanelGeometry {
 
 class TizenInputMethodContext {
  public:
+  // The client that is currently editing text through this context.
+  enum class EditingSource {
+    kNone,
+    kTextInput,
+    kPlatformView,
+  };
+
   TizenInputMethodContext(uintptr_t window_id);
   ~TizenInputMethodContext();
 
@@ -53,7 +60,12 @@ class TizenInputMethodContext {
 
   bool IsInputPanelShown();
 
-  void SetEditingActive(bool active);
+  // Marks |source| as the active editing client (or releases it). A release
+  // request is ignored unless |source| is the current owner, so a stale
+  // deactivation cannot tear down editing that another client has started.
+  void SetEditingActive(EditingSource source, bool active);
+
+  EditingSource editing_source() const { return editing_source_; }
 
   void SetInputPanelEnabled(bool enabled);
 
@@ -99,7 +111,7 @@ class TizenInputMethodContext {
   Ecore_Device* ecore_device_ = nullptr;
 #endif
   Ecore_IMF_Context* imf_context_ = nullptr;
-  bool editing_active_ = false;
+  EditingSource editing_source_ = EditingSource::kNone;
   OnCommit on_commit_;
   OnPreeditChanged on_preedit_changed_;
   OnPreeditStart on_preedit_start_;
