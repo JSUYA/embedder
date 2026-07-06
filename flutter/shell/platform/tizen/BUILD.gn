@@ -88,15 +88,19 @@ template("embedder") {
       "flutter_tizen.cc",
       "flutter_tizen_display_monitor.cc",
       "flutter_tizen_engine.cc",
+      "flutter_tizen_nui.cc",
       "flutter_tizen_texture_registrar.cc",
       "flutter_tizen_view.cc",
       "logger.cc",
       "system_utils.cc",
       "tizen_event_loop.cc",
       "tizen_input_method_context.cc",
+      "tizen_nui_backend_loader.cc",
       "tizen_renderer.cc",
       "tizen_renderer_egl.cc",
       "tizen_renderer_gl.cc",
+      "tizen_renderer_nui_gl.cc",
+      "tizen_view_nui.cc",
       "tizen_vsync_waiter.cc",
       "tizen_window_ecore_wl2.cc",
     ]
@@ -112,6 +116,7 @@ template("embedder") {
       "capi-base-common",
       "capi-system-info",
       "capi-system-system-settings",
+      "dl",
       "dlog",
       "ecore",
       "ecore_imf",
@@ -157,23 +162,15 @@ template("embedder") {
       deps += [ "//flutter/third_party/volk" ]
     }
 
+    # NUI/DALi support is loaded lazily at runtime from a separate shared
+    # library (see the "flutter_tizen_nui" target below), so the main embedder
+    # no longer links against DALi. This keeps DALi an optional runtime
+    # dependency required only by applications that host a Flutter view inside a
+    # Tizen NUI application.
     if (api_version != "6.0") {
-      sources += [
-        "flutter_tizen_nui.cc",
-        "tizen_clipboard.cc",
-        "tizen_renderer_nui_gl.cc",
-        "tizen_view_nui.cc",
-      ]
+      sources += [ "tizen_clipboard.cc" ]
 
-      libs += [
-        "dali2-adaptor",
-        "dali2-core",
-      ]
-
-      defines += [
-        "NUI_SUPPORT",
-        "CLIPBOARD_SUPPORT",
-      ]
+      defines += [ "CLIPBOARD_SUPPORT" ]
     }
 
     configs += [
@@ -267,6 +264,30 @@ executable("flutter_tizen_unittests") {
   ]
 }
 
+# The NUI/DALi backend. This is the only object in the embedder that links
+# against DALi. The main embedder loads it lazily at runtime (see
+# tizen_nui_backend_loader.cc), so DALi is required only by applications that
+# host a Flutter view inside a Tizen NUI application. DALi is not available on
+# the 6.0 sysroot, so the backend is not built there; on those devices the
+# runtime load fails gracefully and the NUI feature is simply unavailable.
+if (api_version != "6.0") {
+  shared_library("flutter_tizen_nui") {
+    sources = [ "tizen_nui_backend.cc" ]
+
+    lib_dirs = [ "//engine/${target_cpu}" ]
+
+    libs = [
+      "dali2-adaptor",
+      "dali2-core",
+    ]
+
+    configs += [
+      ":flutter_tizen_config",
+      "//flutter:config",
+    ]
+  }
+}
+
 publish_client_wrapper_core("publish_cpp_client_wrapper") {
   visibility = [ ":*" ]
 }
@@ -288,4 +309,8 @@ group("flutter_tizen") {
     ":publish_cpp_client_wrapper",
     ":publish_headers_tizen",
   ]
+
+  if (api_version != "6.0") {
+    deps += [ ":flutter_tizen_nui" ]
+  }
 }

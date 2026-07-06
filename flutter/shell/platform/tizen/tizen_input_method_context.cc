@@ -173,11 +173,9 @@ TizenInputMethodContext::~TizenInputMethodContext() {
   UnregisterInputPanelEventCallback();
   UnregisterEventCallbacks();
 
-#ifdef NUI_SUPPORT
   if (ecore_device_) {
     ecore_device_del(ecore_device_);
   }
-#endif
 
   if (imf_context_) {
     ecore_imf_context_del(imf_context_);
@@ -207,7 +205,6 @@ bool TizenInputMethodContext::HandleEcoreEventKey(Ecore_Event_Key* event,
   }
 }
 
-#ifdef NUI_SUPPORT
 bool TizenInputMethodContext::HandleNuiKeyEvent(const char* device_name,
                                                 uint32_t device_class,
                                                 uint32_t device_subclass,
@@ -249,7 +246,6 @@ bool TizenInputMethodContext::HandleNuiKeyEvent(const char* device_name,
                                           &imf_event);
   }
 }
-#endif
 
 InputPanelGeometry TizenInputMethodContext::GetInputPanelGeometry() {
   InputPanelGeometry geometry;

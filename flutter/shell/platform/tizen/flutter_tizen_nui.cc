@@ -4,13 +4,12 @@
 
 #include "public/flutter_tizen.h"
 
-#include <dali-toolkit/public-api/controls/image-view/image-view.h>
-#include <dali/devel-api/adaptor-framework/native-image-source-queue.h>
-
 #include <memory>
 
 #include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/flutter_tizen_view.h"
+#include "flutter/shell/platform/tizen/logger.h"
+#include "flutter/shell/platform/tizen/tizen_nui_backend_loader.h"
 #include "flutter/shell/platform/tizen/tizen_view_nui.h"
 
 namespace {
@@ -32,12 +31,21 @@ FlutterDesktopViewRef FlutterDesktopViewCreateFromImageView(
     void* image_view,
     void* native_image_queue,
     int32_t default_window_id) {
+  // Validate that the NUI/DALi backend and its dependencies are available
+  // before touching any DALi object. This is the only place DALi is required,
+  // so an app that never calls this function never needs DALi at all.
+  if (!flutter::GetTizenNuiBackend()) {
+    FT_LOG(Error) << "Cannot create a view from an image view because the "
+                     "NUI/DALi backend is unavailable. Ensure "
+                     "libflutter_tizen_nui.so and its DALi dependencies are "
+                     "installed on the device.";
+    return nullptr;
+  }
+
   std::unique_ptr<flutter::TizenViewBase> tizen_view =
       std::make_unique<flutter::TizenViewNui>(
-          view_properties.width, view_properties.height,
-          reinterpret_cast<Dali::Toolkit::ImageView*>(image_view),
-          reinterpret_cast<Dali::NativeImageSourceQueue*>(native_image_queue),
-          default_window_id);
+          view_properties.width, view_properties.height, image_view,
+          native_image_queue, default_window_id);
 
   auto view = std::make_unique<flutter::FlutterTizenView>(
       flutter::kImplicitViewId, std::move(tizen_view),

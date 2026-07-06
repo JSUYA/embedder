@@ -4,21 +4,21 @@
 
 #include "flutter/shell/platform/tizen/tizen_view_nui.h"
 
-#include <dali/devel-api/common/stage.h>
-
 #include <string>
 
 #include "flutter/shell/platform/tizen/logger.h"
+#include "flutter/shell/platform/tizen/tizen_nui_backend_loader.h"
 #include "flutter/shell/platform/tizen/tizen_view_event_handler_delegate.h"
 
 namespace flutter {
 
 TizenViewNui::TizenViewNui(int32_t width,
                            int32_t height,
-                           Dali::Toolkit::ImageView* image_view,
-                           Dali::NativeImageSourceQueuePtr native_image_queue,
+                           void* image_view,
+                           void* native_image_queue,
                            int32_t default_window_id)
     : TizenView(width, height),
+      backend_(GetTizenNuiBackend()),
       image_view_(image_view),
       native_image_queue_(native_image_queue),
       default_window_id_(default_window_id) {
@@ -32,34 +32,38 @@ TizenViewNui::~TizenViewNui() {
 }
 
 void TizenViewNui::RegisterEventHandlers() {
-  rendering_callback_ = std::make_unique<Dali::EventThreadCallback>(
-      Dali::MakeCallback(this, &TizenViewNui::RenderOnce));
+  rendering_callback_ = backend_->event_thread_callback_create(
+      &TizenViewNui::RenderOnceThunk, this);
 }
 
 void TizenViewNui::UnregisterEventHandlers() {
-  rendering_callback_.release();
+  if (rendering_callback_) {
+    backend_->event_thread_callback_destroy(rendering_callback_);
+    rendering_callback_ = nullptr;
+  }
 }
 
 TizenGeometry TizenViewNui::GetGeometry() {
-  Dali::Vector2 size = image_view_->GetProperty(Dali::Actor::Property::SIZE)
-                           .Get<Dali::Vector2>();
-  TizenGeometry result = {0, 0, static_cast<int32_t>(size.width),
-                          static_cast<int32_t>(size.height)};
+  float width = 0.f;
+  float height = 0.f;
+  backend_->image_view_get_size(image_view_, &width, &height);
+  TizenGeometry result = {0, 0, static_cast<int32_t>(width),
+                          static_cast<int32_t>(height)};
   return result;
 }
 
 bool TizenViewNui::SetGeometry(TizenGeometry geometry) {
   view_delegate_->OnResize(0, 0, geometry.width, geometry.height);
 
-  image_view_->SetProperty(Dali::Actor::Property::SIZE,
-                           Dali::Vector2(geometry.width, geometry.height));
+  backend_->image_view_set_size(image_view_, geometry.width, geometry.height);
 
-  native_image_queue_->SetSize(geometry.width, geometry.height);
+  backend_->queue_set_size(native_image_queue_, geometry.width,
+                           geometry.height);
   return true;
 }
 
 int32_t TizenViewNui::GetDpi() {
-  return Dali::Stage::GetCurrent().GetDpi().width;
+  return backend_->stage_get_dpi();
 }
 
 uintptr_t TizenViewNui::GetWindowId() {
@@ -75,7 +79,7 @@ void TizenViewNui::Show() {
 }
 
 void TizenViewNui::RequestRendering() {
-  rendering_callback_->Trigger();
+  backend_->event_thread_callback_trigger(rendering_callback_);
 }
 
 void TizenViewNui::OnKey(const char* device_name,
@@ -124,7 +128,11 @@ void TizenViewNui::PrepareInputMethod() {
 }
 
 void TizenViewNui::RenderOnce() {
-  Dali::Stage::GetCurrent().KeepRendering(0.0f);
+  backend_->stage_keep_rendering();
+}
+
+void TizenViewNui::RenderOnceThunk(void* user_data) {
+  static_cast<TizenViewNui*>(user_data)->RenderOnce();
 }
 
 }  // namespace flutter
