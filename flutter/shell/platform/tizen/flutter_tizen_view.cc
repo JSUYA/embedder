@@ -5,6 +5,8 @@
 
 #include "flutter_tizen_view.h"
 
+#include <algorithm>
+
 #include "flutter/shell/platform/tizen/logger.h"
 #include "flutter/shell/platform/tizen/system_utils.h"
 #include "flutter/shell/platform/tizen/tizen_renderer_egl.h"
@@ -186,10 +188,11 @@ void FlutterTizenView::OnPointerMove(double x,
                                      double y,
                                      size_t timestamp,
                                      FlutterPointerDeviceKind device_kind,
-                                     int32_t device_id) {
+                                     int32_t device_id,
+                                     double pressure) {
   PointerState* state = GetOrCreatePointerState(device_kind, device_id);
   FlutterPointerPhase phase = GetPointerPhaseFromState(state);
-  SendFlutterPointerEvent(phase, x, y, 0, 0, timestamp, state);
+  SendFlutterPointerEvent(phase, x, y, 0, 0, timestamp, state, pressure);
 }
 
 void FlutterTizenView::OnPointerDown(double x,
@@ -197,12 +200,13 @@ void FlutterTizenView::OnPointerDown(double x,
                                      FlutterPointerMouseButtons button,
                                      size_t timestamp,
                                      FlutterPointerDeviceKind device_kind,
-                                     int32_t device_id) {
+                                     int32_t device_id,
+                                     double pressure) {
   if (button != 0) {
     PointerState* state = GetOrCreatePointerState(device_kind, device_id);
     state->buttons |= button;
     FlutterPointerPhase phase = GetPointerPhaseFromState(state);
-    SendFlutterPointerEvent(phase, x, y, 0, 0, timestamp, state);
+    SendFlutterPointerEvent(phase, x, y, 0, 0, timestamp, state, pressure);
 
     state->flutter_state_is_down = true;
   }
@@ -213,12 +217,13 @@ void FlutterTizenView::OnPointerUp(double x,
                                    FlutterPointerMouseButtons button,
                                    size_t timestamp,
                                    FlutterPointerDeviceKind device_kind,
-                                   int32_t device_id) {
+                                   int32_t device_id,
+                                   double pressure) {
   if (button != 0) {
     PointerState* state = GetOrCreatePointerState(device_kind, device_id);
     state->buttons &= ~button;
     FlutterPointerPhase phase = GetPointerPhaseFromState(state);
-    SendFlutterPointerEvent(phase, x, y, 0, 0, timestamp, state);
+    SendFlutterPointerEvent(phase, x, y, 0, 0, timestamp, state, pressure);
 
     if (phase == FlutterPointerPhase::kUp) {
       state->flutter_state_is_down = false;
@@ -235,7 +240,7 @@ void FlutterTizenView::OnScroll(double x,
                                 int32_t device_id) {
   PointerState* state = GetOrCreatePointerState(device_kind, device_id);
   FlutterPointerPhase phase = GetPointerPhaseFromState(state);
-  SendFlutterPointerEvent(phase, x, y, delta_x, delta_y, timestamp, state);
+  SendFlutterPointerEvent(phase, x, y, delta_x, delta_y, timestamp, state, 0.0);
 }
 
 void FlutterTizenView::OnKey(const char* key,
@@ -352,7 +357,8 @@ void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,
                                                double delta_x,
                                                double delta_y,
                                                size_t timestamp,
-                                               PointerState* state) {
+                                               PointerState* state,
+                                               double pressure) {
   TizenGeometry geometry = tizen_view_->GetGeometry();
   double new_x = x, new_y = y;
 
@@ -380,6 +386,9 @@ void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,
     event.device_kind = state->device_kind;
     event.buttons = state->buttons;
     event.view_id = view_id();
+    event.pressure = pressure;
+    event.pressure_min = 0.0;
+    event.pressure_max = std::max(1.0, pressure);
     engine_->SendPointerEvent(event);
 
     state->flutter_state_is_added = true;
@@ -400,6 +409,9 @@ void FlutterTizenView::SendFlutterPointerEvent(FlutterPointerPhase phase,
   event.device_kind = state->device_kind;
   event.buttons = state->buttons;
   event.view_id = view_id();
+  event.pressure = pressure;
+  event.pressure_min = 0.0;
+  event.pressure_max = std::max(1.0, pressure);
   engine_->SendPointerEvent(event);
 }
 

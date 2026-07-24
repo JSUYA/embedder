@@ -487,7 +487,7 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
                 button_event->x, button_event->y,
                 ToFlutterPointerButton(button_event->buttons),
                 button_event->timestamp, ToFlutterDeviceKind(button_event->dev),
-                button_event->multi.device);
+                button_event->multi.device, button_event->multi.pressure);
             return ECORE_CALLBACK_DONE;
           }
         }
@@ -507,7 +507,7 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
                 button_event->x, button_event->y,
                 ToFlutterPointerButton(button_event->buttons),
                 button_event->timestamp, ToFlutterDeviceKind(button_event->dev),
-                button_event->multi.device);
+                button_event->multi.device, button_event->multi.pressure);
             return ECORE_CALLBACK_DONE;
           }
         }
@@ -524,7 +524,8 @@ void TizenWindowEcoreWl2::RegisterEventHandlers() {
           if (move_event->window == self->GetWindowId()) {
             self->view_delegate_->OnPointerMove(
                 move_event->x, move_event->y, move_event->timestamp,
-                ToFlutterDeviceKind(move_event->dev), move_event->multi.device);
+                ToFlutterDeviceKind(move_event->dev), move_event->multi.device,
+                move_event->multi.pressure);
             return ECORE_CALLBACK_DONE;
           }
         }

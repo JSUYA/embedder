@@ -55,21 +55,24 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
                      double y,
                      size_t timestamp,
                      FlutterPointerDeviceKind device_kind,
-                     int32_t device_id) override;
+                     int32_t device_id,
+                     double pressure) override;
 
   void OnPointerDown(double x,
                      double y,
                      FlutterPointerMouseButtons button,
                      size_t timestamp,
                      FlutterPointerDeviceKind device_kind,
-                     int32_t device_id) override;
+                     int32_t device_id,
+                     double pressure) override;
 
   void OnPointerUp(double x,
                    double y,
                    FlutterPointerMouseButtons button,
                    size_t timestamp,
                    FlutterPointerDeviceKind device_kind,
-                   int32_t device_id) override;
+                   int32_t device_id,
+                   double pressure) override;
 
   void OnScroll(double x,
                 double y,
@@ -152,7 +155,8 @@ class FlutterTizenView : public TizenViewEventHandlerDelegate {
                                double delta_x,
                                double delta_y,
                                size_t timestamp,
-                               PointerState* state);
+                               PointerState* state,
+                               double pressure);
 
   // The view's unique identifier.
   FlutterViewId view_id_;
