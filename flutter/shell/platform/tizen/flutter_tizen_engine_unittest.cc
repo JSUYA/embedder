@@ -66,6 +66,7 @@ TEST_F(FlutterTizenEngineTest, RunDoesExpectedInitialization) {
         EXPECT_EQ(args->dart_entrypoint_argc, 0);
         EXPECT_NE(args->platform_message_callback, nullptr);
         EXPECT_NE(args->custom_task_runners, nullptr);
+        EXPECT_NE(args->view_focus_change_request_callback, nullptr);
         EXPECT_EQ(args->custom_task_runners->platform_task_runner,
                   args->custom_task_runners->ui_task_runner);
         EXPECT_EQ(args->custom_dart_entrypoint, nullptr);
