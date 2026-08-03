@@ -17,8 +17,10 @@
 namespace flutter {
 
 TizenRendererEgl::TizenRendererEgl(TizenViewBase* view_base,
-                                   bool enable_impeller)
-    : enable_impeller_(enable_impeller) {
+                                   bool enable_impeller,
+                                   int32_t window_msaa_samples)
+    : enable_impeller_(enable_impeller),
+      window_msaa_samples_(window_msaa_samples) {
   TizenRenderer::CreateSurface(view_base);
 }
 
@@ -182,8 +184,8 @@ bool TizenRendererEgl::ChooseEGLConfiguration() {
         EGL_BLUE_SIZE,       8,
         EGL_ALPHA_SIZE,      8,
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-        EGL_SAMPLE_BUFFERS,  1,
-        EGL_SAMPLES,         4,
+        EGL_SAMPLE_BUFFERS,  window_msaa_samples_ > 0 ? 1 : 0,
+        EGL_SAMPLES,         window_msaa_samples_,
         EGL_STENCIL_SIZE,    8,
         EGL_DEPTH_SIZE,      0,
         EGL_NONE
@@ -219,19 +221,41 @@ bool TizenRendererEgl::ChooseEGLConfiguration() {
     }
   }
 
-  int buffer_size = 32;
-  EGLint size;
+  constexpr int buffer_size = 32;
+  EGLConfig fallback_config = nullptr;
+  EGLint selected_samples = 0;
   for (int i = 0; i < num_config; i++) {
+    EGLint size;
     eglGetConfigAttrib(egl_display_, configs[i], EGL_BUFFER_SIZE, &size);
     if (buffer_size == size) {
-      egl_config_ = configs[i];
-      break;
+      if (!fallback_config) {
+        fallback_config = configs[i];
+      }
+      EGLint samples;
+      eglGetConfigAttrib(egl_display_, configs[i], EGL_SAMPLES, &samples);
+      if (!enable_impeller_ || samples == window_msaa_samples_) {
+        egl_config_ = configs[i];
+        selected_samples = samples;
+        break;
+      }
     }
+  }
+  if (!egl_config_ && fallback_config) {
+    egl_config_ = fallback_config;
+    eglGetConfigAttrib(egl_display_, egl_config_, EGL_SAMPLES,
+                       &selected_samples);
+    FT_LOG(Warn) << "Requested " << window_msaa_samples_
+                 << "x window MSAA, but the available EGL configuration uses "
+                 << selected_samples << "x.";
   }
   free(configs);
   if (!egl_config_) {
     FT_LOG(Error) << "No matching configuration found.";
     return false;
+  }
+
+  if (enable_impeller_) {
+    FT_LOG(Info) << "Using " << selected_samples << "x window MSAA.";
   }
 
   return true;

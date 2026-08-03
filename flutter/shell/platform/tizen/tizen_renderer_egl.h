@@ -18,7 +18,9 @@ namespace flutter {
 
 class TizenRendererEgl : public TizenRendererGL {
  public:
-  explicit TizenRendererEgl(TizenViewBase* view_base, bool enable_impeller);
+  explicit TizenRendererEgl(TizenViewBase* view_base,
+                            bool enable_impeller,
+                            int32_t window_msaa_samples);
 
   virtual ~TizenRendererEgl();
 
@@ -60,9 +62,9 @@ class TizenRendererEgl : public TizenRendererGL {
   EGLSurface egl_surface_ = EGL_NO_SURFACE;
   EGLContext egl_resource_context_ = EGL_NO_CONTEXT;
   EGLSurface egl_resource_surface_ = EGL_NO_SURFACE;
-
   std::string egl_extension_str_;
   bool enable_impeller_;
+  int32_t window_msaa_samples_;
 };
 
 }  // namespace flutter

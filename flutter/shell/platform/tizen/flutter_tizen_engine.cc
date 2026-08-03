@@ -29,6 +29,37 @@ namespace {
 // Unique number associated with platform tasks.
 constexpr size_t kPlatformTaskRunnerIdentifier = 1;
 
+constexpr int32_t kDefaultWindowMsaaSamples = 4;
+
+int32_t GetWindowMsaaSamples(FlutterProjectBundle& project) {
+  constexpr char kArgumentName[] = "--tizen-window-msaa-samples";
+  std::string value;
+  if (!project.GetArgumentValue(kArgumentName, &value)) {
+    const std::string argument_prefix = std::string(kArgumentName) + "=";
+    for (const auto& argument : project.engine_arguments()) {
+      if (argument.compare(0, argument_prefix.size(), argument_prefix) == 0) {
+        value = argument.substr(argument_prefix.size());
+        break;
+      }
+    }
+    if (value.empty()) {
+      return kDefaultWindowMsaaSamples;
+    }
+  }
+  if (value == "0") {
+    return 0;
+  }
+  if (value == "2") {
+    return 2;
+  }
+  if (value == "4") {
+    return 4;
+  }
+  FT_LOG(Warn) << "Unsupported Tizen window MSAA sample count: " << value
+               << ". Falling back to " << kDefaultWindowMsaaSamples << "x.";
+  return kDefaultWindowMsaaSamples;
+}
+
 // Converts a LanguageInfo struct to a FlutterLocale struct. |info| must outlive
 // the returned value, since the returned FlutterLocale has pointers into it.
 FlutterLocale CovertToFlutterLocale(const LanguageInfo& info) {
@@ -86,7 +117,8 @@ std::unique_ptr<TizenRenderer> FlutterTizenEngine::CreateRenderer(
   switch (renderer_type) {
     case FlutterDesktopRendererType::kEGL:
       return std::make_unique<TizenRendererEgl>(
-          view_->tizen_view(), project_->HasArgument("--enable-impeller"));
+          view_->tizen_view(), project_->HasArgument("--enable-impeller"),
+          GetWindowMsaaSamples(*project_));
     case FlutterDesktopRendererType::kEVulkan:
 #ifdef FLUTTER_TIZEN_EXPERIMENTAL
       return std::make_unique<TizenRendererVulkan>(view_->tizen_view());
