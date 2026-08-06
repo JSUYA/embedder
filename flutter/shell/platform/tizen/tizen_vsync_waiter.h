@@ -30,6 +30,10 @@ class TdmClient {
   void OnEngineStop();
   void AwaitVblank(intptr_t baton);
 
+  // Returns the vertical refresh rate of the client output in Hz, or 0 if
+  // the output is not available.
+  uint32_t GetRefreshRate();
+
  private:
   static void VblankCallback(tdm_client_vblank* vblank,
                              tdm_error error,

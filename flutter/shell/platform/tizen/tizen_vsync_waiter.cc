@@ -70,6 +70,18 @@ bool TdmClient::IsValid() {
   return vblank_ && client_;
 }
 
+uint32_t TdmClient::GetRefreshRate() {
+  if (!output_) {
+    return 0;
+  }
+  unsigned int refresh_rate = 0;
+  if (tdm_client_output_get_refresh_rate(output_, &refresh_rate) !=
+      TDM_ERROR_NONE) {
+    return 0;
+  }
+  return refresh_rate;
+}
+
 void TdmClient::OnEngineStop() {
   std::lock_guard<std::mutex> lock(engine_mutex_);
   engine_ = nullptr;
