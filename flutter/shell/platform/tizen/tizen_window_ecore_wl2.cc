@@ -858,9 +858,13 @@ void TizenWindowEcoreWl2::PrepareInputMethod() {
 void* TizenWindowEcoreWl2::GetRenderTarget() {
   if (is_vulkan_) {
     return wl2_surface_;
-  } else {
-    return ecore_wl2_egl_window_;
   }
+  // Return the native window (wl_egl_window) rather than the Ecore_Wl2 wrapper
+  // so that the renderer does not need to depend on Ecore_Wl2 to unwrap it.
+  if (!ecore_wl2_egl_window_) {
+    return nullptr;
+  }
+  return ecore_wl2_egl_window_native_get(ecore_wl2_egl_window_);
 }
 
 void TizenWindowEcoreWl2::ActivateWindow() {
