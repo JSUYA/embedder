@@ -22,6 +22,7 @@ config("compiler") {
   ldflags = [
     "-fPIC",
     "-pthread",
+    "-fuse-ld=lld",
     "-Wl,--fatal-warnings",
     "-Wl,-z,noexecstack",
     "-Wl,-z,now",
@@ -163,12 +164,16 @@ config("no_optimize") {
 config("optimize") {
   defines = [ "NDEBUG" ]
   cflags = [
-    "-O2",
+    "-Os",
+    "-flto",
     "-fno-ident",
   ]
   ldflags = [
     "-Wl,-O2",
+    "-flto",
     "-Wl,--as-needed",
+    "-Wl,--icf=all",
+    "-Wl,--version-script=" + rebase_path("//exports.map"),
   ]
 
   # Put data and code in their own sections, so that unused symbols
