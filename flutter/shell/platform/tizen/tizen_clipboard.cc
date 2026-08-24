@@ -104,15 +104,9 @@ void TizenClipboard::ReceiveData(void* event) {
     return;
   }
 
-  size_t data_length = strlen(ready_event->data);
-  size_t buffer_size = ready_event->len;
-  std::string content;
-
-  if (data_length < buffer_size) {
-    content.append(ready_event->data, data_length);
-  } else {
-    content.append(ready_event->data, buffer_size);
-  }
+  std::string content(
+      ready_event->data,
+      strnlen(ready_event->data, static_cast<size_t>(ready_event->len)));
 
   if (on_data_callback_) {
     on_data_callback_(content);
