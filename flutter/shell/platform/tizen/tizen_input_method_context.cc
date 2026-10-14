@@ -26,7 +26,8 @@ const char* GetEcoreImfContextAvailableId() {
 Ecore_IMF_Input_Panel_Layout TextInputTypeToEcoreImfInputPanelLayout(
     const std::string& text_input_type) {
   if (text_input_type == "TextInputType.text" ||
-      text_input_type == "TextInputType.multiline") {
+      text_input_type == "TextInputType.multiline" ||
+      text_input_type == "TextInputType.none") {
     return ECORE_IMF_INPUT_PANEL_LAYOUT_NORMAL;
   } else if (text_input_type == "TextInputType.number") {
     return ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY;
@@ -271,13 +272,23 @@ bool TizenInputMethodContext::IsInputPanelShown() {
          state == ECORE_IMF_INPUT_PANEL_STATE_WILL_SHOW;
 }
 
-void TizenInputMethodContext::SetInputPanelLayout(
-    const std::string& input_type) {
+void TizenInputMethodContext::SetInputPanelLayout(const std::string& input_type,
+                                                  bool obscure_text) {
   if (!imf_context_) {
     return;
   }
   Ecore_IMF_Input_Panel_Layout panel_layout =
       TextInputTypeToEcoreImfInputPanelLayout(input_type);
+
+  // Keep numeric PIN keyboards while disabling learning through input hints.
+  if (obscure_text && input_type != "TextInputType.number" &&
+      input_type != "TextInputType.phone") {
+    panel_layout = ECORE_IMF_INPUT_PANEL_LAYOUT_PASSWORD;
+  }
+  ecore_imf_context_input_mode_set(
+      imf_context_, static_cast<Ecore_IMF_Input_Mode>(
+                        ECORE_IMF_INPUT_MODE_FULL |
+                        (obscure_text ? ECORE_IMF_INPUT_MODE_INVISIBLE : 0)));
   ecore_imf_context_input_panel_layout_set(imf_context_, panel_layout);
 }
 
@@ -298,6 +309,48 @@ void TizenInputMethodContext::SetInputPanelLayoutVariation(bool is_signed,
     variation = ECORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY_VARIATION_NORMAL;
   }
   ecore_imf_context_input_panel_layout_variation_set(imf_context_, variation);
+}
+
+void TizenInputMethodContext::SetInputHints(bool sensitive,
+                                            bool prediction,
+                                            bool multiline) {
+  if (!imf_context_) {
+    return;
+  }
+  int hints = ECORE_IMF_INPUT_HINT_NONE;
+  if (sensitive) {
+    hints |= ECORE_IMF_INPUT_HINT_SENSITIVE_DATA;
+  } else if (prediction) {
+    hints |= ECORE_IMF_INPUT_HINT_AUTO_COMPLETE;
+  }
+  if (multiline) {
+    hints |= ECORE_IMF_INPUT_HINT_MULTILINE;
+  }
+  ecore_imf_context_input_hint_set(imf_context_,
+                                   static_cast<Ecore_IMF_Input_Hints>(hints));
+  ecore_imf_context_prediction_allow_set(imf_context_,
+                                         prediction && !sensitive);
+}
+
+void TizenInputMethodContext::SetInputPanelReturnKeyType(
+    const std::string& action) {
+  if (!imf_context_) {
+    return;
+  }
+  Ecore_IMF_Input_Panel_Return_Key_Type type =
+      ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_DEFAULT;
+  if (action == "TextInputAction.done") {
+    type = ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_DONE;
+  } else if (action == "TextInputAction.go") {
+    type = ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_GO;
+  } else if (action == "TextInputAction.next") {
+    type = ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_NEXT;
+  } else if (action == "TextInputAction.search") {
+    type = ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_SEARCH;
+  } else if (action == "TextInputAction.send") {
+    type = ECORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_SEND;
+  }
+  ecore_imf_context_input_panel_return_key_type_set(imf_context_, type);
 }
 
 void TizenInputMethodContext::SetAutocapitalType(const std::string& type) {

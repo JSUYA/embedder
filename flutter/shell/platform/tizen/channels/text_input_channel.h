@@ -47,6 +47,9 @@ class TextInputChannel {
       const MethodCall<rapidjson::Document>& method_call,
       std::unique_ptr<MethodResult<rapidjson::Document>> result);
 
+  // Applies settings without replacing the editing model or client ID.
+  bool ApplyConfiguration(const rapidjson::Value& config, bool is_new_client);
+
   // Sends the current state of |active_model_| to the Flutter engine.
   void SendStateUpdate();
 
@@ -80,9 +83,9 @@ class TextInputChannel {
   // https://api.flutter.dev/flutter/services/TextInputType-class.html
   std::string input_type_;
 
-  // Automatic text capitalization type. See available options:
-  // https://api.flutter.dev/flutter/services/TextCapitalization.html
-  std::string text_capitalization_ = "";
+  bool obscure_text_ = false;
+  bool input_type_signed_ = false;
+  bool input_type_decimal_ = false;
 };
 
 }  // namespace flutter

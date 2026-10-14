@@ -5,7 +5,6 @@
 #include "text_input_channel.h"
 
 #include "flutter/shell/platform/common/json_method_codec.h"
-#include "flutter/shell/platform/tizen/flutter_tizen_engine.h"
 #include "flutter/shell/platform/tizen/logger.h"
 
 namespace flutter {
@@ -17,6 +16,7 @@ constexpr char kChannelName[] = "flutter/textinput";
 constexpr char kSetEditingStateMethod[] = "TextInput.setEditingState";
 constexpr char kClearClientMethod[] = "TextInput.clearClient";
 constexpr char kSetClientMethod[] = "TextInput.setClient";
+constexpr char kUpdateConfigMethod[] = "TextInput.updateConfig";
 constexpr char kShowMethod[] = "TextInput.show";
 constexpr char kHideMethod[] = "TextInput.hide";
 constexpr char kNoneInputType[] = "TextInputType.none";
@@ -156,78 +156,31 @@ void TextInputChannel::HandleMethodCall(
     }
     const rapidjson::Document& args = *method_call.arguments();
 
-    // TODO(awdavies): There's quite a wealth of arguments supplied with this
-    // method, and they should be inspected/used.
-    const rapidjson::Value& client_id_json = args[0];
-    const rapidjson::Value& client_config = args[1];
-    if (client_id_json.IsNull()) {
-      result->Error(kBadArgumentError, "Could not set client, ID is null.");
-      return;
-    }
-    if (client_config.IsNull()) {
+    if (!args.IsArray() || args.Size() != 2 || !args[0].IsInt()) {
       result->Error(kBadArgumentError,
-                    "Could not set client, missing arguments.");
+                    "Expected a client ID and configuration.");
       return;
     }
-
-    client_id_ = client_id_json.GetInt();
-    input_action_ = "";
-    auto input_action_iter = client_config.FindMember(kTextInputAction);
-    if (input_action_iter != client_config.MemberEnd() &&
-        input_action_iter->value.IsString()) {
-      input_action_ = input_action_iter->value.GetString();
+    if (!ApplyConfiguration(args[1], true)) {
+      result->Error(kBadArgumentError, "Invalid input configuration.");
+      return;
     }
-
-    text_capitalization_ = "";
-    auto text_capitalization_iter =
-        client_config.FindMember(kTextCapitalization);
-    if (text_capitalization_iter != client_config.MemberEnd() &&
-        text_capitalization_iter->value.IsString()) {
-      text_capitalization_ = text_capitalization_iter->value.GetString();
-      input_method_context_->SetAutocapitalType(text_capitalization_);
-    }
-
-    input_type_ = "";
-    auto input_type_info_iter = client_config.FindMember(kTextInputType);
-    if (input_type_info_iter != client_config.MemberEnd() &&
-        input_type_info_iter->value.IsObject()) {
-      auto input_type_iter =
-          input_type_info_iter->value.FindMember(kTextInputTypeName);
-      if (input_type_iter != input_type_info_iter->value.MemberEnd() &&
-          input_type_iter->value.IsString()) {
-        input_type_ = input_type_iter->value.GetString();
-        bool is_signed = false;
-        auto is_signed_iter =
-            input_type_info_iter->value.FindMember(kTextInputTypeSigned);
-        if (is_signed_iter != input_type_info_iter->value.MemberEnd() &&
-            is_signed_iter->value.IsBool()) {
-          is_signed = is_signed_iter->value.GetBool();
-        }
-        bool is_decimal = false;
-        auto is_decimal_iter =
-            input_type_info_iter->value.FindMember(kTextInputTypeDecimal);
-        if (is_decimal_iter != input_type_info_iter->value.MemberEnd() &&
-            is_decimal_iter->value.IsBool()) {
-          is_decimal = is_decimal_iter->value.GetBool();
-        }
-        input_method_context_->SetInputPanelLayout(input_type_);
-        input_method_context_->SetInputPanelLayoutVariation(is_signed,
-                                                            is_decimal);
-        // The panel should be closed and reopened to fully apply the layout
-        // change. See https://github.com/flutter-tizen/engine/pull/194.
-        input_method_context_->HideInputPanel();
-        if (input_type_ != kNoneInputType) {
-          input_method_context_->SetInputPanelEnabled(true);
-          input_method_context_->ShowInputPanel();
-        } else {
-          input_method_context_->SetInputPanelEnabled(false);
-        }
-      }
-    }
+    client_id_ = args[0].GetInt();
 
     input_method_context_->ResetInputMethodContext();
     active_model_ = std::make_unique<TextInputModel>();
     input_method_context_->SetEditingActive(true);
+  } else if (method.compare(kUpdateConfigMethod) == 0) {
+    if (!active_model_) {
+      result->Error(kInternalConsistencyError,
+                    "Update configuration invoked without a client.");
+      return;
+    }
+    if (!method_call.arguments() ||
+        !ApplyConfiguration(*method_call.arguments(), false)) {
+      result->Error(kBadArgumentError, "Invalid input configuration.");
+      return;
+    }
   } else if (method.compare(kSetEditingStateMethod) == 0) {
     if (!method_call.arguments() || method_call.arguments()->IsNull()) {
       result->Error(kBadArgumentError, "Method invoked without args.");
@@ -301,6 +254,94 @@ void TextInputChannel::HandleMethodCall(
   // All error conditions return early, so if nothing has gone wrong indicate
   // success.
   result->Success();
+}
+
+bool TextInputChannel::ApplyConfiguration(const rapidjson::Value& config,
+                                          bool is_new_client) {
+  if (!config.IsObject()) {
+    return false;
+  }
+  for (const char* key : {kTextInputAction, kTextCapitalization}) {
+    if (config.HasMember(key) && !config[key].IsString()) {
+      return false;
+    }
+  }
+  for (const char* key : {"obscureText", "autocorrect", "enableSuggestions"}) {
+    if (config.HasMember(key) && !config[key].IsBool()) {
+      return false;
+    }
+  }
+
+  std::string input_type = "TextInputType.text";
+  bool is_signed = false;
+  bool is_decimal = false;
+  if (config.HasMember(kTextInputType)) {
+    const auto& type = config[kTextInputType];
+    if (!type.IsObject() || !type.HasMember(kTextInputTypeName) ||
+        !type[kTextInputTypeName].IsString()) {
+      return false;
+    }
+    for (const char* key : {kTextInputTypeSigned, kTextInputTypeDecimal}) {
+      if (type.HasMember(key) && !type[key].IsNull() && !type[key].IsBool()) {
+        return false;
+      }
+    }
+    input_type = type[kTextInputTypeName].GetString();
+    is_signed = type.HasMember(kTextInputTypeSigned) &&
+                type[kTextInputTypeSigned].IsBool() &&
+                type[kTextInputTypeSigned].GetBool();
+    is_decimal = type.HasMember(kTextInputTypeDecimal) &&
+                 type[kTextInputTypeDecimal].IsBool() &&
+                 type[kTextInputTypeDecimal].GetBool();
+  }
+  bool obscure_text =
+      config.HasMember("obscureText") && config["obscureText"].GetBool();
+  bool sensitive =
+      obscure_text || input_type == "TextInputType.visiblePassword";
+  // Neither backend can independently control correction and suggestions.
+  bool prediction =
+      !sensitive &&
+      (!config.HasMember("autocorrect") || config["autocorrect"].GetBool()) &&
+      (!config.HasMember("enableSuggestions") ||
+       config["enableSuggestions"].GetBool());
+  bool layout_changed =
+      input_type_ != input_type || obscure_text_ != obscure_text ||
+      input_type_signed_ != is_signed || input_type_decimal_ != is_decimal;
+  bool reopen_panel =
+      is_new_client ||
+      (layout_changed && input_method_context_->IsInputPanelShown());
+
+  input_type_ = input_type;
+  obscure_text_ = obscure_text;
+  input_type_signed_ = is_signed;
+  input_type_decimal_ = is_decimal;
+  input_action_ = config.HasMember(kTextInputAction)
+                      ? config[kTextInputAction].GetString()
+                      : "";
+  std::string capitalization = config.HasMember(kTextCapitalization)
+                                   ? config[kTextCapitalization].GetString()
+                                   : "TextCapitalization.none";
+  if (is_new_client || layout_changed) {
+    input_method_context_->SetInputPanelLayout(input_type_, obscure_text);
+    input_method_context_->SetInputPanelLayoutVariation(
+        input_type_ == "TextInputType.number" && is_signed,
+        input_type_ == "TextInputType.number" && is_decimal);
+  }
+  input_method_context_->SetInputHints(sensitive, prediction,
+                                       input_type_ == kMultilineInputType);
+  input_method_context_->SetAutocapitalType(
+      sensitive ? "TextCapitalization.none" : capitalization);
+  input_method_context_->SetInputPanelReturnKeyType(input_action_);
+
+  // Reopen a visible panel to apply a layout change (engine PR #194).
+  if (reopen_panel || input_type_ == kNoneInputType) {
+    input_method_context_->HideInputPanel();
+  }
+  input_method_context_->SetInputPanelEnabled(input_type_ != kNoneInputType);
+  if (reopen_panel && input_type_ != kNoneInputType) {
+    input_method_context_->ShowInputPanel();
+  }
+  return true;
 }
 
 void TextInputChannel::SendStateUpdate() {

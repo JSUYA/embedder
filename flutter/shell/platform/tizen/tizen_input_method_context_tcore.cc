@@ -17,7 +17,8 @@ int imf_init_count = 0;
 tizen_core_imf_input_panel_layout_e TextInputTypeToImfInputPanelLayout(
     const std::string& text_input_type) {
   if (text_input_type == "TextInputType.text" ||
-      text_input_type == "TextInputType.multiline") {
+      text_input_type == "TextInputType.multiline" ||
+      text_input_type == "TextInputType.none") {
     return TIZEN_CORE_IMF_INPUT_PANEL_LAYOUT_NORMAL;
   } else if (text_input_type == "TextInputType.number") {
     return TIZEN_CORE_IMF_INPUT_PANEL_LAYOUT_NUMBERONLY;
@@ -276,14 +277,12 @@ void TizenInputMethodContext::ShowInputPanel() {
     return;
   }
   tizen_core_imf_context_input_panel_show(imf_context_);
-  tizen_core_imf_context_focus_in(imf_context_);
 }
 
 void TizenInputMethodContext::HideInputPanel() {
   if (!imf_context_) {
     return;
   }
-  tizen_core_imf_context_focus_out(imf_context_);
   tizen_core_imf_context_input_panel_hide(imf_context_);
 }
 
@@ -308,13 +307,19 @@ bool TizenInputMethodContext::ShouldFilterKey(const char* key) {
   return editing_active_ && !IsNavigationOrSystemKey(key);
 }
 
-void TizenInputMethodContext::SetInputPanelLayout(
-    const std::string& input_type) {
+void TizenInputMethodContext::SetInputPanelLayout(const std::string& input_type,
+                                                  bool obscure_text) {
   if (!imf_context_) {
     return;
   }
   tizen_core_imf_input_panel_layout_e panel_layout =
       TextInputTypeToImfInputPanelLayout(input_type);
+
+  // Keep numeric PIN keyboards while disabling learning through input hints.
+  if (obscure_text && input_type != "TextInputType.number" &&
+      input_type != "TextInputType.phone") {
+    panel_layout = TIZEN_CORE_IMF_INPUT_PANEL_LAYOUT_PASSWORD;
+  }
   tizen_core_imf_context_set_input_panel_layout(imf_context_, panel_layout);
 }
 
@@ -335,6 +340,46 @@ void TizenInputMethodContext::SetInputPanelLayoutVariation(bool is_signed,
   }
   tizen_core_imf_context_set_input_panel_layout_variation(imf_context_,
                                                           variation);
+}
+
+void TizenInputMethodContext::SetInputHints(bool sensitive,
+                                            bool prediction,
+                                            bool multiline) {
+  if (!imf_context_) {
+    return;
+  }
+  int hints = TIZEN_CORE_IMF_INPUT_HINTS_NONE;
+  if (sensitive) {
+    hints |= TIZEN_CORE_IMF_INPUT_HINTS_SENSITIVE_DATA;
+  } else if (prediction) {
+    hints |= TIZEN_CORE_IMF_INPUT_HINTS_AUTO_COMPLETE;
+  }
+  if (multiline) {
+    hints |= TIZEN_CORE_IMF_INPUT_HINTS_MULTILINE;
+  }
+  tizen_core_imf_context_set_input_hint(
+      imf_context_, static_cast<tizen_core_imf_input_hints_e>(hints));
+}
+
+void TizenInputMethodContext::SetInputPanelReturnKeyType(
+    const std::string& action) {
+  if (!imf_context_) {
+    return;
+  }
+  tizen_core_imf_input_panel_return_key_type_e type =
+      TIZEN_CORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_DEFAULT;
+  if (action == "TextInputAction.done") {
+    type = TIZEN_CORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_DONE;
+  } else if (action == "TextInputAction.go") {
+    type = TIZEN_CORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_GO;
+  } else if (action == "TextInputAction.next") {
+    type = TIZEN_CORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_NEXT;
+  } else if (action == "TextInputAction.search") {
+    type = TIZEN_CORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_SEARCH;
+  } else if (action == "TextInputAction.send") {
+    type = TIZEN_CORE_IMF_INPUT_PANEL_RETURN_KEY_TYPE_SEND;
+  }
+  tizen_core_imf_context_set_input_panel_return_key_type(imf_context_, type);
 }
 
 void TizenInputMethodContext::SetAutocapitalType(const std::string& type) {

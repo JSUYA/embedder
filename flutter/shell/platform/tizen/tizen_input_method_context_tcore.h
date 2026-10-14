@@ -42,9 +42,13 @@ class TizenInputMethodContext {
 
   bool ShouldFilterKey(const char* key);
 
-  void SetInputPanelLayout(const std::string& layout);
+  void SetInputPanelLayout(const std::string& layout, bool obscure_text);
 
   void SetInputPanelLayoutVariation(bool is_signed, bool is_decimal);
+
+  void SetInputHints(bool sensitive, bool prediction, bool multiline);
+
+  void SetInputPanelReturnKeyType(const std::string& action);
 
   void SetAutocapitalType(const std::string& type);
 
