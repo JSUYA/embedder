@@ -54,12 +54,13 @@ def backend(directory, core):
   declarations = '\n'.join(re.search(r'(?:void|bool) ' + name + r'\([^;]*;',
                                      header).group() for name in methods)
   prefix = 'TIZEN_CORE_IMF' if core else 'ECORE_IMF'
-  fake = '#pragma once\n#include <cassert>\n#include <string>\n' + enums + r'''
+  fake = '#pragma once\n#include <cassert>\n#include <functional>\n#include <string>\n' + enums + r'''
 struct Native {
   int layout = -1, variation = -1, hints = -1, capitalization = -1;
   int return_key = -1, mode = 0, prediction = -1;
   int shows = 0, hides = 0, resets = 0, focuses = 0, writes = 0;
   bool shown = false, enabled = true, focused = false;
+  std::function<void()> on_reset;
 };
 namespace flutter {
 class TizenInputMethodContext {
@@ -92,7 +93,7 @@ class TizenInputMethodContext {
   for name, body in {
       'input_panel_show': '++n->shows; n->shown = true;',
       'input_panel_hide': '++n->hides; n->shown = false;',
-      'reset': '++n->resets;',
+      'reset': '++n->resets; if (n->on_reset) n->on_reset();',
       'focus_in': '++n->focuses; n->focused = true;',
       'focus_out': '++n->focuses; n->focused = false;',
   }.items():

@@ -83,6 +83,8 @@ class TextInputChannel {
   // https://api.flutter.dev/flutter/services/TextInputType-class.html
   std::string input_type_;
 
+  std::string capitalization_ = "TextCapitalization.none";
+
   bool obscure_text_ = false;
   bool input_type_signed_ = false;
   bool input_type_decimal_ = false;

@@ -307,9 +307,21 @@ bool TextInputChannel::ApplyConfiguration(const rapidjson::Value& config,
   bool layout_changed =
       input_type_ != input_type || obscure_text_ != obscure_text ||
       input_type_signed_ != is_signed || input_type_decimal_ != is_decimal;
+  std::string capitalization =
+      !sensitive && config.HasMember(kTextCapitalization)
+          ? config[kTextCapitalization].GetString()
+          : "TextCapitalization.none";
+  bool capitalization_changed = capitalization_ != capitalization;
   bool reopen_panel =
       is_new_client ||
-      (layout_changed && input_method_context_->IsInputPanelShown());
+      ((layout_changed || capitalization_changed) &&
+       input_method_context_->IsInputPanelShown());
+
+  // Finish preedit before a new layout or panel refresh can discard it.
+  if (!is_new_client && active_model_ && active_model_->composing() &&
+      (layout_changed || reopen_panel)) {
+    input_method_context_->ResetInputMethodContext();
+  }
 
   input_type_ = input_type;
   obscure_text_ = obscure_text;
@@ -318,9 +330,7 @@ bool TextInputChannel::ApplyConfiguration(const rapidjson::Value& config,
   input_action_ = config.HasMember(kTextInputAction)
                       ? config[kTextInputAction].GetString()
                       : "";
-  std::string capitalization = config.HasMember(kTextCapitalization)
-                                   ? config[kTextCapitalization].GetString()
-                                   : "TextCapitalization.none";
+  capitalization_ = capitalization;
   if (is_new_client || layout_changed) {
     input_method_context_->SetInputPanelLayout(input_type_, obscure_text);
     input_method_context_->SetInputPanelLayoutVariation(
@@ -329,11 +339,10 @@ bool TextInputChannel::ApplyConfiguration(const rapidjson::Value& config,
   }
   input_method_context_->SetInputHints(sensitive, prediction,
                                        input_type_ == kMultilineInputType);
-  input_method_context_->SetAutocapitalType(
-      sensitive ? "TextCapitalization.none" : capitalization);
+  input_method_context_->SetAutocapitalType(capitalization_);
   input_method_context_->SetInputPanelReturnKeyType(input_action_);
 
-  // Reopen a visible panel to apply a layout change (engine PR #194).
+  // Tizen applies layout and capitalization changes when showing the panel.
   if (reopen_panel || input_type_ == kNoneInputType) {
     input_method_context_->HideInputPanel();
   }

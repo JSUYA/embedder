@@ -47,11 +47,14 @@ int main() {
         }));
     assert(replied);
   };
-  auto update = [&](const std::string& config) {
+  auto update = [&](const std::string& config, int expected_resets = 0) {
     int old_sent = sent, resets = native.resets, focuses = native.focuses;
     call("TextInput.updateConfig", config);
-    assert(sent == old_sent && native.resets == resets &&
+    assert(native.resets == resets + expected_resets &&
            native.focuses == focuses);
+    if (!expected_resets) {
+      assert(sent == old_sent);
+    }
   };
   auto check_state = [&](const char* text, int base, int extent,
                          int composing_base, int composing_extent) {
@@ -96,6 +99,7 @@ int main() {
   assert(native.shown && native.focused);
   channel.OnCommit("X");
   check_state("A😀X", 4, 4, -1, -1);
+  update("{}");
   channel.OnComposeBegin();
   channel.OnComposeChange("한", 1);
   check_state("A😀X한", 5, 5, 4, 5);
@@ -107,6 +111,9 @@ int main() {
 #endif
   channel.OnComposeChange("한글", 2);
   check_state("A😀X한글", 6, 6, 4, 6);
+  channel.OnComposeEnd();
+  channel.OnCommit("한글");
+  check_state("A😀X한글", 6, 6, -1, -1);
   channel.SendKey("Return", nullptr, nullptr, 0, 0, true);
   assert(last["args"][0].GetInt() == 42);
   assert(std::string(last["args"][1].GetString()) == "TextInputAction.search");
@@ -165,10 +172,16 @@ int main() {
            {"words", IMF_AUTOCAPITAL_TYPE_WORD},
            {"sentences", IMF_AUTOCAPITAL_TYPE_SENTENCE},
            {"none", IMF_AUTOCAPITAL_TYPE_NONE}}) {
+    int shows = native.shows, hides = native.hides;
     update("{\"textCapitalization\":\"TextCapitalization." + item.first +
            "\"}");
     assert(native.capitalization == item.second);
+    assert(native.shows == shows + 1 && native.hides == hides + 1);
+    update("{\"textCapitalization\":\"TextCapitalization." + item.first +
+           "\"}");
+    assert(native.shows == shows + 1 && native.hides == hides + 1);
   }
+  update("{}");
   int shows = native.shows, hides = native.hides;
   for (const auto& item : std::map<std::string, int>{
            {"done", IMF_INPUT_PANEL_RETURN_KEY_TYPE_DONE},
@@ -195,6 +208,8 @@ int main() {
   call("TextInput.hide", "null");
   assert(!native.shown && !native.focused);
   shows = native.shows;
+  update(R"({"textCapitalization":"TextCapitalization.characters"})");
+  assert(!native.shown && native.shows == shows);
   update(R"({"obscureText":true})");
   assert(!native.shown && !native.focused && native.shows == shows);
   call("TextInput.show", "null");
@@ -210,6 +225,32 @@ int main() {
   assert(native.return_key == IMF_INPUT_PANEL_RETURN_KEY_TYPE_DEFAULT);
   call("TextInput.show", "null");
   assert(native.shown);
+
+  // Reset must commit preedit using the old settings, before password mode
+  // or a capitalization refresh can discard it. A following key inserts once.
+  for (const char* config : {
+           R"({"obscureText":true})",
+           R"({"textCapitalization":"TextCapitalization.characters"})",
+           R"({"inputType":{"name":"TextInputType.number"}})"}) {
+    update("{}");
+    call("TextInput.setEditingState", R"({"text":"X😀","selectionBase":3,
+      "selectionExtent":3,"composingBase":-1,"composingExtent":-1})");
+    channel.OnComposeBegin();
+    channel.OnComposeChange("한", 1);
+    check_state("X😀한", 4, 4, 3, 4);
+    native.on_reset = [&]() {
+      assert(native.layout == IMF_INPUT_PANEL_LAYOUT_NORMAL);
+      assert(native.hints == IMF_INPUT_HINT_AUTO_COMPLETE);
+      assert(native.capitalization == IMF_AUTOCAPITAL_TYPE_NONE);
+      channel.OnComposeEnd();
+      channel.OnCommit("한");
+    };
+    update(config, 1);
+    native.on_reset = nullptr;
+    check_state("X😀한", 4, 4, -1, -1);
+    channel.OnCommit("b");
+    check_state("X😀한b", 5, 5, -1, -1);
+  }
 
   call("TextInput.setClient", "[84,{}]");
   channel.OnCommit("new client");
